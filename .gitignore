@@ -6,6 +6,9 @@ __pycache__/
 # Virtual environment
 .venv/
 
+# Legacy reference code (excluded from repo)
+example/
+
 # Build output
 dist/
 HSL2-Release.zip
