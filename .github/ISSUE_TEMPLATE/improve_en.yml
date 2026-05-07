@@ -1,0 +1,33 @@
+name: "Improvement Suggestion"
+description: "提出一个改进建议 / Suggest an improvement"
+title: "[Improve] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Current Problem"
+      description: "What aspect of the project needs improvement?"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "Proposed Solution"
+      description: "Describe the improvement you have in mind. The more specific, the better."
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternatives Considered (optional)"
+      description: "Have you considered other approaches?"
+    validations:
+      required: false
+  - type: checkboxes
+    id: sanity
+    attributes:
+      label: "Pre-submission Checklist"
+      options:
+        - label: "I confirm this suggestion is based on actual usage experience, not an AI-generated optimization idea"
+          required: true

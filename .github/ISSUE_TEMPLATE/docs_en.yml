@@ -1,0 +1,26 @@
+name: "Documentation Request"
+description: "请求文档或翻译 / Request documentation"
+title: "[Docs] "
+labels: ["documentation"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: "Documentation Needed"
+      description: "Describe what documentation area needs coverage (API, usage guide, architecture, etc.)."
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: "Purpose"
+      description: "What problem would this documentation solve? Who is the audience?"
+    validations:
+      required: true
+  - type: checkboxes
+    id: sanity
+    attributes:
+      label: "Pre-submission Checklist"
+      options:
+        - label: "I confirm this is a genuinely missing documentation area in the project, not an AI-generated request"
+          required: true

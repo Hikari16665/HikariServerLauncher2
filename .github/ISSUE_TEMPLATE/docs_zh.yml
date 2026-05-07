@@ -1,0 +1,26 @@
+name: "文档需求"
+description: "请求文档或翻译 / Request documentation"
+title: "[Docs] "
+labels: ["documentation"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: "需要的文档"
+      description: "请描述你希望补充哪方面的文档（如 API、使用指南、架构说明等）。"
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: "文档用途"
+      description: "这份文档会解决什么问题？谁会是受众？"
+    validations:
+      required: true
+  - type: checkboxes
+    id: sanity
+    attributes:
+      label: "提交前确认"
+      options:
+        - label: "我已确认这是项目中真实缺失的文档内容，而非 AI 虚构的需求"
+          required: true

@@ -1,0 +1,33 @@
+name: "功能改进建议"
+description: "提出一个改进建议 / Suggest an improvement"
+title: "[Improve] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: "当前存在的问题"
+      description: "当前项目的哪个方面需要改进？"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "改进方案"
+      description: "描述你期望的改进方式，越具体越好。"
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "备选方案（可选）"
+      description: "是否考虑过其他替代实现？"
+    validations:
+      required: false
+  - type: checkboxes
+    id: sanity
+    attributes:
+      label: "提交前确认"
+      options:
+        - label: "我已确认该建议基于实际使用体验，而非 AI 凭空生成的优化想法"
+          required: true

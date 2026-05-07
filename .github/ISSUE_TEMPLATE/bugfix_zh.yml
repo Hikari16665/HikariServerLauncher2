@@ -1,0 +1,47 @@
+name: "Bug 反馈"
+description: "报告一个 Bug / Report a bug"
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: "Bug 描述"
+      description: "清晰描述你遇到的问题。"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: "复现步骤"
+      description: "请列出触发该 Bug 的完整步骤。"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "预期行为"
+      description: "你期望发生什么？"
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: "实际行为"
+      description: "实际发生了什么？包含错误信息或截图。"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: "运行环境"
+      description: "操作系统、Python 版本、Java 版本等。"
+    validations:
+      required: false
+  - type: checkboxes
+    id: sanity
+    attributes:
+      label: "提交前确认"
+      options:
+        - label: "我已确认这不是 AI 生成的幻觉报告，上述步骤可被人类复现"
+          required: true
