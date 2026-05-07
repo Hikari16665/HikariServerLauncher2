@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environment
+.venv/
+
+# Build output
+dist/
+HSL2-Release.zip
+
+# Runtime data (contains admin keys, server instances, logs)
+config.yml
+backups/
+workspace/
+java/
+logs/
+
+# IDE / tools
+.vscode/
+.VSCodeCounter/
+.idea/
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db

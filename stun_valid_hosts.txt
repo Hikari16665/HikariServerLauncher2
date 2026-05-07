@@ -1,0 +1,22 @@
+# global STUNs
+stun.l.google.com:19302
+stun1.l.google.com:19302
+stun2.l.google.com:19302
+stun3.l.google.com:19302
+stun4.l.google.com:19302
+
+# china-available STUNs
+stun.miwifi.com:3478
+stun.qq.com:3478
+stun.chat.bilibili.com:3478
+stun.hitv.com:3478
+stun.le.com:3478
+stun.video.163.com:3478
+stun.smartisan.com:3478
+stun.360.cn:3478
+stun.synology.com:3478
+stun.tplink.com:3478
+stun.mi.com:3478
+stun.jd.com:3478
+stun.yeelight.com:3478
+stun.heytap.com:3478

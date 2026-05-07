@@ -1,0 +1,259 @@
+"""Server file management — browse, create, edit, delete files in a server directory.
+
+All paths are resolved relative to the server's root directory.
+Path traversal outside the server root is blocked.
+"""
+
+import os
+import shutil
+import mimetypes
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
+
+
+class PathTraversalError(Exception):
+    pass
+
+
+def _safe_path(server_path: str, relative_path: str) -> str:
+    """Resolve a relative path within the server directory.
+
+    Blocks path traversal (e.g. '../../../etc/passwd').
+    """
+    # Normalize and strip leading slashes/dots
+    cleaned = relative_path.replace("\\", "/").lstrip("/")
+    resolved = os.path.normpath(os.path.join(server_path, cleaned))
+
+    # Must be within server_path
+    if not resolved.startswith(os.path.normpath(server_path)):
+        raise PathTraversalError(f"Path traversal blocked: {relative_path}")
+
+    return resolved
+
+
+def _file_info(abs_path: str, server_path: str) -> Dict[str, Any]:
+    """Get metadata for a file or directory."""
+    stat = os.stat(abs_path)
+    rel_path = os.path.relpath(abs_path, server_path).replace("\\", "/")
+    return {
+        "name": os.path.basename(abs_path),
+        "path": rel_path,
+        "type": "directory" if os.path.isdir(abs_path) else "file",
+        "size": stat.st_size if os.path.isfile(abs_path) else 0,
+        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+    }
+
+
+def list_directory(server_path: str, relative_path: str = "") -> Dict[str, Any]:
+    """List contents of a directory within the server."""
+    try:
+        target = _safe_path(server_path, relative_path) if relative_path else server_path
+    except PathTraversalError as e:
+        return {"error": str(e)}
+
+    if not os.path.exists(target):
+        return {"error": f"Path not found: {relative_path}"}
+    if not os.path.isdir(target):
+        return {"error": f"Not a directory: {relative_path}"}
+
+    items = []
+    try:
+        for entry in sorted(os.listdir(target)):
+            abs_entry = os.path.join(target, entry)
+            items.append(_file_info(abs_entry, server_path))
+    except PermissionError:
+        return {"error": "Permission denied"}
+
+    current_rel = os.path.relpath(target, server_path).replace("\\", "/")
+    if current_rel == ".":
+        current_rel = ""
+
+    return {
+        "path": current_rel,
+        "items": items,
+    }
+
+
+def read_file(server_path: str, relative_path: str) -> Dict[str, Any]:
+    """Read file contents. Returns raw text."""
+    try:
+        target = _safe_path(server_path, relative_path)
+    except PathTraversalError as e:
+        return {"error": str(e)}
+
+    if not os.path.exists(target):
+        return {"error": f"File not found: {relative_path}"}
+    if os.path.isdir(target):
+        return {"error": f"Cannot read directory as file: {relative_path}"}
+
+    try:
+        with open(target, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+    except Exception as e:
+        return {"error": str(e)}
+
+    info = _file_info(target, server_path)
+    info["content"] = content
+    return info
+
+
+def write_file(server_path: str, relative_path: str, content: str) -> Dict[str, Any]:
+    """Write complete file contents. Creates parent directories if needed."""
+    try:
+        target = _safe_path(server_path, relative_path)
+    except PathTraversalError as e:
+        return {"error": str(e)}
+
+    # Don't allow overwriting the .hslmeta file
+    if os.path.basename(target) == ".hslmeta":
+        return {"error": "Cannot edit server metadata file"}
+
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "w", encoding="utf-8") as f:
+            f.write(content)
+    except Exception as e:
+        return {"error": str(e)}
+
+    return _file_info(target, server_path)
+
+
+def create_file(server_path: str, relative_path: str, content: str = "") -> Dict[str, Any]:
+    """Create a new file."""
+    try:
+        target = _safe_path(server_path, relative_path)
+    except PathTraversalError as e:
+        return {"error": str(e)}
+
+    if os.path.exists(target):
+        return {"error": f"Already exists: {relative_path}"}
+
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "w", encoding="utf-8") as f:
+            f.write(content)
+    except Exception as e:
+        return {"error": str(e)}
+
+    return _file_info(target, server_path)
+
+
+def delete_file(server_path: str, relative_path: str) -> Dict[str, Any]:
+    """Delete a file."""
+    try:
+        target = _safe_path(server_path, relative_path)
+    except PathTraversalError as e:
+        return {"error": str(e)}
+
+    if os.path.basename(target) == ".hslmeta":
+        return {"error": "Cannot delete server metadata file"}
+
+    if not os.path.exists(target):
+        return {"error": f"Not found: {relative_path}"}
+    if os.path.isdir(target):
+        return {"error": f"Use /api/servers/<uuid>/folders to delete directories"}
+
+    try:
+        os.remove(target)
+    except Exception as e:
+        return {"error": str(e)}
+
+    return {"success": True, "path": relative_path}
+
+
+def create_folder(server_path: str, relative_path: str) -> Dict[str, Any]:
+    """Create a new directory."""
+    try:
+        target = _safe_path(server_path, relative_path)
+    except PathTraversalError as e:
+        return {"error": str(e)}
+
+    if os.path.exists(target):
+        return {"error": f"Already exists: {relative_path}"}
+
+    try:
+        os.makedirs(target, exist_ok=True)
+    except Exception as e:
+        return {"error": str(e)}
+
+    return _file_info(target, server_path)
+
+
+def delete_folder(
+    server_path: str, relative_path: str, recursive: bool = False
+) -> Dict[str, Any]:
+    """Delete a directory. Must be empty unless recursive=True."""
+    try:
+        target = _safe_path(server_path, relative_path)
+    except PathTraversalError as e:
+        return {"error": str(e)}
+
+    if not os.path.exists(target):
+        return {"error": f"Not found: {relative_path}"}
+    if not os.path.isdir(target):
+        return {"error": f"Not a directory: {relative_path}"}
+
+    # Safety: refuse to delete the server root
+    if os.path.normpath(target) == os.path.normpath(server_path):
+        return {"error": "Cannot delete server root directory"}
+
+    try:
+        if recursive:
+            shutil.rmtree(target)
+        else:
+            os.rmdir(target)  # Will fail if not empty
+    except OSError as e:
+        if not recursive and "directory not empty" in str(e).lower():
+            return {"error": f"Directory not empty. Use recursive=true to delete recursively"}
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": str(e)}
+
+    return {"success": True, "path": relative_path}
+
+
+def upload_file(server_path: str, relative_path: str, file_data: bytes, filename: str) -> Dict[str, Any]:
+    """Save an uploaded file to the server directory."""
+    try:
+        target_dir = _safe_path(server_path, relative_path) if relative_path else server_path
+    except PathTraversalError as e:
+        return {"error": str(e)}
+
+    os.makedirs(target_dir, exist_ok=True)
+    target_file = os.path.join(target_dir, filename)
+
+    if os.path.basename(target_file) == ".hslmeta":
+        return {"error": "Cannot overwrite server metadata file"}
+
+    try:
+        with open(target_file, "wb") as f:
+            f.write(file_data)
+    except Exception as e:
+        return {"error": str(e)}
+
+    return _file_info(target_file, server_path)
+
+
+def download_file(server_path: str, relative_path: str):
+    """Read a file for download. Returns (error, data, mimetype) tuple."""
+    try:
+        target = _safe_path(server_path, relative_path)
+    except PathTraversalError as e:
+        return str(e), b"", None
+
+    if not os.path.exists(target):
+        return f"File not found: {relative_path}", b"", None
+    if os.path.isdir(target):
+        return f"Cannot download a directory: {relative_path}", b"", None
+
+    try:
+        with open(target, "rb") as f:
+            data = f.read()
+    except Exception as e:
+        return str(e), b"", None
+
+    mime_type, _ = mimetypes.guess_type(relative_path)
+    if mime_type is None:
+        mime_type = "application/octet-stream"
+
+    return None, data, mime_type

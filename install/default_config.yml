@@ -1,0 +1,15 @@
+app:
+  name: Hikari Server Launcher
+  host: 127.0.0.1
+  port: 5000
+  flask-debug: false
+auth:
+  enabled: true
+  admin-key: "PLACEHOLDER"
+workspace:
+  path: "workspace"
+server:
+  java:
+    auto_download: true
+backup:
+  dir: "backups"

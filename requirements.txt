@@ -1,0 +1,13 @@
+rich
+httpx
+regex
+psutil
+pyyaml
+nuitka
+pydantic==1.10.18
+flask[async]
+docker
+pystun3
+flask-sock
+javaproperties
+flask-cors
