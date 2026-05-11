@@ -29,6 +29,7 @@ datas = [
     ("index.html", "."),
     ("source.json", "."),
     ("stun_valid_hosts.txt", "."),
+    ("LICENSE", "."),
 ]
 
 a = Analysis(

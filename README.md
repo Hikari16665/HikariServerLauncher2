@@ -40,14 +40,15 @@ HSL2/
 │   │       ├── lib.rs        # Tauri commands: proxy_fetch, proxy_upload, window ops
 │   │       └── main.rs       # Entry point
 │   └── src/                  # React TypeScript frontend
-│       ├── components/       # UI components (ConfigEditor, FileBrowser, Terminal, etc.)
-│       ├── pages/            # Page views (Dashboard, ServerDetail, CreateServer, etc.)
+│       ├── components/       # UI components
+│       ├── pages/            # Page views
 │       ├── lib/              # API client and type definitions
 │       └── store/            # Zustand state stores
-├── example/                  # Reference: original HSL v1 codebase
 ├── install/                  # Default config templates
-├── build.bat                 # Build script (PyInstaller + Tauri)
-├── launcher.bat              # Runtime launcher
+├── build.sh                  # Cross-platform build script
+├── build.bat                 # Windows build script
+├── launcher.sh               # Linux runtime launcher
+├── launcher.bat              # Windows runtime launcher
 ├── requirements.txt          # Python dependencies
 └── pyinstaller.spec          # PyInstaller spec
 ```
@@ -66,10 +67,39 @@ See [USAGE.md](USAGE.md) for launch instructions, setup guide, and known issues.
 
 ## Build
 
-Requires Python 3.10+, Node.js 20+, Rust toolchain (MSVC), and a Bash-compatible shell.
+Requires Python 3.10+, Node.js 20+, Rust toolchain, and dependencies from `requirements.txt`.
 
-```batch
-build.bat
+### Linux x86_64
+
+```bash
+./build.sh              # deb + AppImage
 ```
 
-Output is placed in `dist/` and packaged as `HSL2-Release.zip`.
+### Windows x86_64 (cross-compile from Linux)
+
+Requires Wine with Windows Python and mingw-w64 toolchain.
+
+```bash
+./build.sh win
+```
+
+### All platforms
+
+```bash
+./build.sh all           # Linux + Windows in one run
+```
+
+Output is placed in `dist/linux-x86_64/` and `dist/windows-x64/`, then packaged as `HSL2-Release-<platform>.tar.gz`.
+
+### Cross-compilation dependencies
+
+```bash
+# Windows: mingw-w64 + Rust Windows target
+sudo pacman -S mingw-w64-gcc
+rustup target add x86_64-pc-windows-gnu
+
+# ARM64 (optional):
+sudo pacman -S aarch64-linux-gnu-gcc
+rustup target add aarch64-unknown-linux-gnu
+./build.sh linux-arm64
+```

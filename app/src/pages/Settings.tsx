@@ -2,16 +2,19 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useSettings } from "../store/settings";
 import { api } from "../lib/api";
+import { THEMES, applyTheme } from "../lib/themes";
 
 export default function Settings() {
   const {
     apiUrl,
     adminKey,
     useMirror,
+    theme,
     setApiUrl,
     setAdminKey,
     setAuth,
     setUseMirror,
+    setTheme,
   } = useSettings();
 
   const [url, setUrl] = useState(apiUrl);
@@ -65,36 +68,28 @@ export default function Settings() {
     }
   }
 
-  return (
-    <div style={{ padding: 24, maxWidth: 600, margin: "0 auto", width: "100%" }}>
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h1
-          style={{
-            fontSize: 20,
-            fontWeight: 600,
-            marginBottom: 24,
-          }}
-        >
-          设置
-        </h1>
+  const sectionStyle: React.CSSProperties = {
+    marginBottom: 22,
+  };
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+  const labelStyle: React.CSSProperties = {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text-secondary)",
+    display: "block",
+    marginBottom: 5,
+  };
+
+  return (
+    <div style={{ padding: 24, maxWidth: 600, margin: "0 auto", width: "100%", height: "100%", overflow: "auto" }}>
+      <h1 style={{ fontSize: 20, fontWeight: 600, color: "var(--text-primary)", marginBottom: 24 }}>
+        设置
+      </h1>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {/* API URL */}
-          <div>
-            <label
-              style={{
-                fontSize: 12,
-                fontWeight: 600,
-                color: "var(--text-secondary)",
-                display: "block",
-                marginBottom: 6,
-              }}
-            >
-              API 地址
-            </label>
+          <div style={sectionStyle}>
+            <label style={labelStyle}>API 地址</label>
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 value={url}
@@ -127,18 +122,8 @@ export default function Settings() {
           </div>
 
           {/* Admin Key */}
-          <div>
-            <label
-              style={{
-                fontSize: 12,
-                fontWeight: 600,
-                color: "var(--text-secondary)",
-                display: "block",
-                marginBottom: 6,
-              }}
-            >
-              管理密钥
-            </label>
+          <div style={sectionStyle}>
+            <label style={labelStyle}>管理密钥</label>
             <input
               type="password"
               value={key}
@@ -149,13 +134,13 @@ export default function Settings() {
           </div>
 
           {/* Mirror mode */}
-          <div>
+          <div style={sectionStyle}>
             <label
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 12,
-                padding: "16px",
+                padding: "14px 16px",
                 background: "var(--bg-secondary)",
                 borderRadius: "var(--radius)",
                 border: "1px solid var(--border)",
@@ -203,6 +188,35 @@ export default function Settings() {
             </label>
           </div>
 
+          {/* Theme Selector */}
+          <div style={sectionStyle}>
+            <label style={labelStyle}>配色方案</label>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginTop: 2 }}>
+              {THEMES.map((t) => (
+                <button
+                  key={t.name}
+                  onClick={() => {
+                    setTheme(t.name);
+                    applyTheme(t.name);
+                  }}
+                  style={{
+                    padding: "8px 6px",
+                    fontSize: 12,
+                    fontWeight: 500,
+                    borderRadius: "var(--radius-sm)",
+                    border: theme === t.name ? "2px solid var(--accent)" : "1px solid var(--border)",
+                    background: theme === t.name ? "var(--accent-light)" : "var(--bg-secondary)",
+                    color: theme === t.name ? "var(--accent)" : "var(--text-secondary)",
+                    cursor: "pointer",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Save */}
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <button className="btn-primary" onClick={handleSave}>
@@ -219,7 +233,6 @@ export default function Settings() {
             )}
           </div>
         </div>
-      </motion.div>
     </div>
   );
 }

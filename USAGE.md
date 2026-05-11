@@ -1,18 +1,28 @@
 # 启动方式
 
-1. 使用启动.bat打开Hikari Server Launcher.
-2. 软件分为Server和App两部分，启动后会先在终端中打开Server（请勿关闭此窗口），随后打开App。
-3. 关闭App时将最小化至托盘，可以右键App图标召回窗口或退出。需要彻底关闭请先关闭所有服务器，随后关掉Server。
+## Linux
+
+```bash
+./start.sh
+```
+
+脚本会自动设置 Wayland 兼容环境变量并依次启动后端和前端。
+
+### 环境变量说明
+
+- `GDK_BACKEND=x11` — 在 Wayland 会话下强制使用 X11 后端，解决 GTK3/webkit2gtk 协议错误
+- `WEBKIT_DISABLE_COMPOSITING_MODE=1` — 禁用 GPU 合成，解决部分显卡驱动下的渲染异常
+- `WEBKIT_FORCE_SANDBOX=0` — 禁用 webkit2gtk 沙箱，兼容较新内核的 seccomp 策略
+
+## Windows
+
+双击 `start.bat` 即可启动。
+
+---
 
 # 引导
 
-1. 默认地址为http://127.0.0.1:5000，您无需修改。
-2. Server启动后将在目录下生成config.yml，您打开后可以在admin-key中找到生成的管理密码，在引导中进行粘贴即可。
+1. 默认地址为 http://127.0.0.1:5000，您无需修改。
+2. Server 启动后将在目录下生成 `config.yml`，打开后可在 `admin-key` 中找到生成的管理密码，在引导中进行粘贴即可。
 3. 如果您位于中国大陆境内，可以点击优先选择镜像源。
 4. 您可以随时在设置页面切换镜像源。
-
-# 测试
-
-1. 上传文件有Bug（已验证）
-2. 除Vanilla（原版）外的游戏版本加载列表时有失败、白屏、卡死问题。（已验证待修复）
-3. 在部分设备上启动服务器后将卡进度并无法检测和连接进程。（难以复现）

@@ -39,6 +39,7 @@ from core.server_file_manager import (
     write_file,
 )
 from core.tui import TUI
+from core.monitor import SystemMonitor
 
 import sys
 import logging
@@ -117,6 +118,10 @@ def check_docker_installed():
 
 
 check_docker_installed()
+
+monitor = SystemMonitor()
+# Start disk usage history collector (snapshot every hour)
+monitor.start_collector(lambda: [s.path for s in workspace.get_valid_servers()])
 
 env = EnvironmentManager()
 logger.info("EnvironmentManager 已初始化。")
@@ -648,10 +653,25 @@ def get_vanilla_versions_endpoint():
 def get_paper_versions_endpoint():
     if not auth.require_auth(request):
         return jsonify({"error": auth.get_auth_error(request)}), 401
+    mc_version = request.args.get("mc_version", default=None)
     from core.version_resolver import get_paper_versions
 
     try:
-        result = get_paper_versions()
+        result = get_paper_versions(mc_version=mc_version)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/versions/paper/builds", methods=["GET"])
+def get_paper_builds_endpoint():
+    if not auth.require_auth(request):
+        return jsonify({"error": auth.get_auth_error(request)}), 401
+    sub_version = request.args.get("version", default="")
+    from core.version_resolver import get_paper_builds
+
+    try:
+        result = get_paper_builds(sub_version)
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1153,12 +1173,50 @@ if sock is not None:
                             )
                             if not success:
                                 ws.send(json.dumps({"type": "error", "message": msg}))
+                        elif data.get("type") == "set_encoding" and data.get("encoding"):
+                            new_enc = data["encoding"]
+                            if new_enc in ("utf-8", "gbk", "gb2312", "gb18030", "latin-1"):
+                                spm.set_encoding(server_uuid, new_enc)
+                                ws.send(json.dumps({"type": "status", "message": f"Encoding set to {new_enc}"}))
+                            else:
+                                ws.send(json.dumps({"type": "error", "message": f"Unsupported encoding: {new_enc}"}))
                     except json.JSONDecodeError:
                         pass
         except Exception:
             pass
         finally:
             spm.remove_listener(server_uuid, ws)
+
+
+# ── System monitoring endpoints ──────────────────────────────────
+
+
+@app.route("/api/system/stats", methods=["GET"])
+def system_stats():
+    if not auth.require_auth(request):
+        return jsonify({"error": auth.get_auth_error(request)}), 401
+    paths = [s.path for s in workspace.get_valid_servers()]
+    stats = monitor.get_current_stats(paths)
+    return jsonify(stats)
+
+
+@app.route("/api/system/disk-history", methods=["GET"])
+def system_disk_history():
+    if not auth.require_auth(request):
+        return jsonify({"error": auth.get_auth_error(request)}), 401
+    history = monitor.get_disk_history()
+    return jsonify({"history": history})
+
+
+@app.route("/api/system/license", methods=["GET"])
+def system_license():
+    license_path = _get_app_path("LICENSE")
+    try:
+        with open(license_path, "r", encoding="utf-8") as f:
+            text = f.read()
+        return jsonify({"text": text})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Static / Ping ────────────────────────────────────────────────

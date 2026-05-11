@@ -217,7 +217,7 @@ def _resolve_jar_url(server_type: ServerType, version: str, source) -> Optional[
     if server_type == ServerType.VANILLA:
         return _resolve_vanilla_url(version, source)
     elif server_type == ServerType.PAPER:
-        return _resolve_paper_url(source)
+        return _resolve_paper_url(version, source)
     elif server_type == ServerType.FABRIC:
         return _resolve_fabric_url(version, source)
     elif server_type == ServerType.FORGE:
@@ -243,7 +243,10 @@ def _resolve_vanilla_url(version: str, source) -> Optional[str]:
     return None
 
 
-def _resolve_paper_url(source) -> Optional[str]:
+def _resolve_paper_url(version: str, source) -> Optional[str]:
+    if version.startswith("https://"):
+        return version
+    # Fallback: try source.json static URL
     for ps in source.mc.paper.list:
         if ps.type == "stable":
             return ps.latest
@@ -294,11 +297,17 @@ def _resolve_forge_installer_url(version: str, source) -> Optional[str]:
 
     # version format: "mc_version" or "mc_version|forge_version"
     if "|" in version:
-        mc_ver, fg_ver = version.split("|", 1)
+        mc_ver, fg_ver_raw = version.split("|", 1)
+        # fg_ver_raw may already contain mc_version prefix like "1.21.4-52.0.27"
+        # Strip the mc_ver prefix if present
+        if fg_ver_raw.startswith(mc_ver + "-"):
+            fg_ver = fg_ver_raw[len(mc_ver) + 1:]
+        else:
+            fg_ver = fg_ver_raw
     else:
         mc_ver = version
         fg_ver = ""
-        # Auto-resolve latest forge version from BMCLAPI
+        # Auto-resolve latest forge version
         try:
             resp = httpx.get(
                 f"https://bmclapi2.bangbang93.com/forge/minecraft/{version}",
@@ -310,7 +319,7 @@ def _resolve_forge_installer_url(version: str, source) -> Optional[str]:
                     latest = sorted(builds, key=lambda b: b.get("build", 0), reverse=True)[0]
                     forge_version = latest.get("version", "")
                     if "-" in forge_version:
-                        parts = forge_version.split("-")
+                        parts = forge_version.split("-", 1)
                         mc_ver, fg_ver = parts[0], parts[1]
                     else:
                         fg_ver = forge_version
@@ -320,8 +329,11 @@ def _resolve_forge_installer_url(version: str, source) -> Optional[str]:
     if not fg_ver:
         return None
 
+    full_version = f"{mc_ver}-{fg_ver}"
+
+    # Try BMCLAPI first
     for fs in source.forge.list:
-        if fs.type == "bmclapi":
+        if fs.type == "bmclapi" and fs.download:
             params = {
                 "mcversion": mc_ver,
                 "version": fg_ver,
@@ -334,6 +346,35 @@ def _resolve_forge_installer_url(version: str, source) -> Optional[str]:
                     return str(resp.url)
             except Exception:
                 pass
+
+    # Fallback: official Forge maven
+    maven_url = (
+        f"https://maven.minecraftforge.net/net/minecraftforge/forge/"
+        f"{full_version}/forge-{full_version}-installer.jar"
+    )
+    try:
+        resp = httpx.head(maven_url, follow_redirects=True)
+        if resp.status_code == 200:
+            return maven_url
+    except Exception:
+        pass
+
+    # Last resort: try with mc_ver|full_version format on BMCLAPI
+    for fs in source.forge.list:
+        if fs.type == "bmclapi" and fs.download:
+            params = {
+                "mcversion": mc_ver,
+                "version": full_version,
+                "category": "installer",
+                "format": "jar",
+            }
+            try:
+                resp = httpx.get(fs.download, params=params, follow_redirects=True)
+                if resp.status_code == 200:
+                    return str(resp.url)
+            except Exception:
+                pass
+
     return None
 
 

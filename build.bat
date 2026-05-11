@@ -58,6 +58,12 @@ if exist "%ROOT%\USAGE.md" (
     echo   - USAGE.md (usage guide)
 )
 
+:: Copy LICENSE
+if exist "%ROOT%\LICENSE" (
+    copy /y "%ROOT%\LICENSE" "%DIST%\LICENSE" >nul
+    echo   - LICENSE (GPL v3)
+)
+
 :: Clean up build temp directory
 if exist "%DIST%\build-temp" (
     echo   Cleaning build temp...

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -15,6 +15,7 @@ export default function Terminal({ serverUuid, running }: Props) {
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const bufRef = useRef("");
+  const [encoding, setEncoding] = useState<"utf-8" | "gbk">("utf-8");
 
   const { send, reconnect } = useWebSocket(
     `/api/servers/${serverUuid}/terminal`,
@@ -120,15 +121,54 @@ export default function Terminal({ serverUuid, running }: Props) {
     };
   }, [serverUuid]);
 
+  function toggleEncoding() {
+    const next = encoding === "utf-8" ? "gbk" : "utf-8";
+    setEncoding(next);
+    send(JSON.stringify({ type: "set_encoding", encoding: next }));
+    termRef.current?.write(`\x1b[90m[编码切换: ${next.toUpperCase()}]\x1b[0m\r\n`);
+  }
+
   return (
-    <div
-      ref={containerRef}
-      style={{
-        height: "100%",
-        padding: "8px 12px 12px 12px",
-        background: "#0d1117",
-        boxSizing: "border-box",
-      }}
-    />
+    <div style={{ position: "relative", height: "100%" }}>
+      <div
+        ref={containerRef}
+        style={{
+          height: "100%",
+          padding: "8px 12px 12px 12px",
+          background: "#0d1117",
+          boxSizing: "border-box",
+        }}
+      />
+      <button
+        onClick={toggleEncoding}
+        title={`当前编码: ${encoding.toUpperCase()}，点击切换`}
+        style={{
+          position: "absolute",
+          top: 8,
+          right: 20,
+          padding: "3px 8px",
+          fontSize: 11,
+          fontFamily: "var(--mono)",
+          fontWeight: 600,
+          background: "rgba(48,54,61,0.85)",
+          color: "var(--text-muted)",
+          border: "1px solid rgba(139,148,158,0.3)",
+          borderRadius: 4,
+          cursor: "pointer",
+          zIndex: 10,
+          transition: "color 0.15s, border-color 0.15s",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.color = "#e6edf3";
+          e.currentTarget.style.borderColor = "rgba(139,148,158,0.6)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.color = "var(--text-muted)";
+          e.currentTarget.style.borderColor = "rgba(139,148,158,0.3)";
+        }}
+      >
+        {encoding.toUpperCase()}
+      </button>
+    </div>
   );
 }

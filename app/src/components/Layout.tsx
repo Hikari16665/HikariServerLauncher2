@@ -1,95 +1,70 @@
-import { useState } from "react";
 import { Outlet, NavLink, useLocation } from "react-router-dom";
-import { motion } from "framer-motion";
 import TitleBar from "./TitleBar";
 import TaskFloating from "./TaskFloating";
 
 const NAV = [
-  { to: "/", label: "服务器" },
-  { to: "/servers/new", label: "创建服务器" },
+  { to: "/", label: "面板" },
+  { to: "/servers", label: "服务器" },
+  { to: "/install", label: "安装" },
   { to: "/settings", label: "设置" },
+  { to: "/about", label: "关于" },
 ];
 
 export default function Layout() {
-  const [navHover, setNavHover] = useState<string | null>(null);
   const location = useLocation();
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-      {/* Custom Title Bar */}
       <TitleBar />
 
-      {/* Top Navbar */}
       <nav
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 0,
-          padding: "0 20px",
-          height: 48,
+          gap: 2,
+          padding: "0 16px",
+          height: 44,
           background: "var(--bg-secondary)",
           borderBottom: "1px solid var(--border)",
           flexShrink: 0,
         }}
       >
-        {/* Logo */}
         <div
           style={{
             fontWeight: 700,
-            fontSize: 16,
+            fontSize: 15,
             color: "var(--accent)",
-            marginRight: 32,
-            letterSpacing: -0.5,
+            marginRight: 28,
+            letterSpacing: "-0.03em",
+            fontFamily: "var(--mono)",
           }}
         >
           HSL
         </div>
 
-        {/* Nav Links */}
         {NAV.map(({ to, label }) => {
           const active = location.pathname === to;
           return (
             <NavLink
               key={to}
               to={to}
-              style={{ textDecoration: "none", position: "relative" }}
-              onMouseEnter={() => setNavHover(to)}
-              onMouseLeave={() => setNavHover(null)}
+              style={{
+                textDecoration: "none",
+                padding: "6px 14px",
+                fontSize: 13,
+                fontWeight: active ? 600 : 500,
+                color: active ? "var(--text-primary)" : "var(--text-secondary)",
+                borderRadius: "var(--radius-sm)",
+                background: active ? "var(--bg-tertiary)" : "transparent",
+                transition: "background 0.15s, color 0.15s",
+              }}
             >
-              <div
-                style={{
-                  padding: "12px 16px",
-                  fontSize: 13,
-                  fontWeight: 500,
-                  color: active
-                    ? "var(--text-primary)"
-                    : "var(--text-secondary)",
-                  transition: "color 0.15s",
-                }}
-              >
-                {label}
-              </div>
-              {(active || navHover === to) && (
-                <motion.div
-                  layoutId="nav-underline"
-                  style={{
-                    position: "absolute",
-                    bottom: 0,
-                    left: 8,
-                    right: 8,
-                    height: 2,
-                    borderRadius: 1,
-                    background: active ? "var(--accent)" : "var(--border)",
-                  }}
-                  transition={{ type: "spring", stiffness: 500, damping: 35 }}
-                />
-              )}
+              {label}
             </NavLink>
           );
         })}
       </nav>
 
-      {/* Page Content */}
       <main
         style={{
           flex: 1,
@@ -101,7 +76,6 @@ export default function Layout() {
         <Outlet />
       </main>
 
-      {/* Task Floating Button */}
       <TaskFloating />
     </div>
   );

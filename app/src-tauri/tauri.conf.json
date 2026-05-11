@@ -29,7 +29,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": "nsis",
-    "icon": ["icons/icon.ico"]
+    "targets": ["deb", "appimage"],
+    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
   }
 }

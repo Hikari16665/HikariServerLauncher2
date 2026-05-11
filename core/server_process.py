@@ -149,6 +149,10 @@ class RunningServer:
         self._stdin_queue: queue.Queue = queue.Queue()
         self._stdin_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self._encoding = "utf-8"
+
+    def set_encoding(self, enc: str):
+        self._encoding = enc
 
     @property
     def is_running(self) -> bool:
@@ -238,10 +242,7 @@ class ServerProcessManager:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
+                bufsize=0,
             )
         except FileNotFoundError:
             log = Logger()
@@ -254,13 +255,16 @@ class ServerProcessManager:
 
         rs = RunningServer(server.uuid, process, command)
 
-        # stdout reader thread
+        # stdout reader thread (binary mode, decode per encoding)
         def _read_stdout():
             try:
-                for line in iter(process.stdout.readline, ""):
+                for raw_line in iter(process.stdout.readline, b""):
                     if rs._stop_event.is_set():
                         break
-                    line = line.rstrip("\n\r")
+                    try:
+                        line = raw_line.decode(rs._encoding, errors="replace").rstrip("\n\r")
+                    except Exception:
+                        line = raw_line.decode("utf-8", errors="replace").rstrip("\n\r")
                     if line:
                         rs.broadcast_line(line)
             except Exception as e:
@@ -290,7 +294,7 @@ class ServerProcessManager:
                     cmd = rs._stdin_queue.get(timeout=0.5)
                     if cmd is None:
                         break
-                    process.stdin.write(cmd + "\n")
+                    process.stdin.write((cmd + "\n").encode("utf-8"))
                     process.stdin.flush()
                 except queue.Empty:
                     continue
@@ -359,6 +363,13 @@ class ServerProcessManager:
             return False, "Server is not running"
         rs.send_command(command)
         return True, "Command sent"
+
+    def set_encoding(self, server_uuid: str, encoding: str):
+        """Set the encoding for reading stdout of a running server."""
+        rs = self._running.get(server_uuid)
+        if rs:
+            rs.set_encoding(encoding)
+            rs.broadcast_status(f"终端编码已切换为 {encoding}")
 
     def get_status(self, server_uuid: str) -> Dict[str, Any]:
         """Get server running status."""

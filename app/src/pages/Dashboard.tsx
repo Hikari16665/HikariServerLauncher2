@@ -1,235 +1,321 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
-import { api, ApiError } from "../lib/api";
-import type { Server, ServerStatus } from "../lib/types";
-import { useToastStore } from "../store/toast";
-import { showConfirm } from "../components/ConfirmDialog";
+import { useEffect, useState, useCallback } from "react";
+import {
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+import { api } from "../lib/api";
+import type { SystemStats, DiskSnapshot } from "../lib/types";
+
+const MAX_POINTS = 60;
+
+interface CpuPoint {
+  time: string;
+  cpu: number;
+}
+interface MemPoint {
+  time: string;
+  used: number;
+  total: number;
+}
+interface NetPoint {
+  time: string;
+  sent: number;
+  recv: number;
+}
+interface DiskPoint {
+  time: string;
+  used: number;
+  free: number;
+}
+
+// Module-level ring buffers — survive page navigation
+const cpuBuf: CpuPoint[] = [];
+const memBuf: MemPoint[] = [];
+const netBuf: NetPoint[] = [];
+let lastDiskFetch = 0;
+let cachedDiskData: DiskPoint[] = [];
+
+function formatTime(ts: number): string {
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function formatGB(v: number): string {
+  return v.toFixed(1) + " GB";
+}
 
 export default function Dashboard() {
-  const [servers, setServers] = useState<Server[]>([]);
-  const [statuses, setStatuses] = useState<Record<string, ServerStatus>>({});
-  const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
-  const addToast = useToastStore((s) => s.addToast);
+  const [cpuData, setCpuData] = useState<CpuPoint[]>(cpuBuf);
+  const [memData, setMemData] = useState<MemPoint[]>(memBuf);
+  const [netData, setNetData] = useState<NetPoint[]>(netBuf);
+  const [diskData, setDiskData] = useState<DiskPoint[]>(cachedDiskData);
+  const [error, setError] = useState<string | null>(null);
 
-  async function fetchServers() {
+  const pushStats = useCallback((stats: SystemStats) => {
+    const t = formatTime(stats.timestamp);
+
+    cpuBuf.push({ time: t, cpu: stats.cpu_percent });
+    if (cpuBuf.length > MAX_POINTS) cpuBuf.shift();
+    setCpuData([...cpuBuf]);
+
+    memBuf.push({ time: t, used: stats.mem_used_gb, total: stats.mem_total_gb });
+    if (memBuf.length > MAX_POINTS) memBuf.shift();
+    setMemData([...memBuf]);
+
+    netBuf.push({ time: t, sent: stats.net_sent_kbps, recv: stats.net_recv_kbps });
+    if (netBuf.length > MAX_POINTS) netBuf.shift();
+    setNetData([...netBuf]);
+  }, []);
+
+  const fetchStats = useCallback(async () => {
     try {
-      const data = await api.get<{ servers: Server[] }>("/api/servers");
-      setServers(data.servers);
-    } catch (e) {
-      console.error("Failed to fetch servers:", e);
-    } finally {
-      setLoading(false);
+      const stats = await api.get<SystemStats>("/api/system/stats");
+      pushStats(stats);
+      setError(null);
+    } catch (e: any) {
+      setError(e.message || "获取系统状态失败");
     }
-  }
+  }, [pushStats]);
 
-  async function fetchStatuses(serverList: Server[]) {
-    const map: Record<string, ServerStatus> = {};
-    await Promise.all(
-      serverList.map(async (s) => {
-        try {
-          const st = await api.get<ServerStatus>(
-            `/api/servers/${s.uuid}/status`
-          );
-          map[s.uuid] = st;
-        } catch {
-          map[s.uuid] = { running: false };
-        }
-      })
-    );
-    setStatuses(map);
-  }
-
-  useEffect(() => {
-    fetchServers();
+  const fetchDiskHistory = useCallback(async () => {
+    const now = Date.now();
+    if (now - lastDiskFetch < 30000) return;
+    lastDiskFetch = now;
+    try {
+      const resp = await api.get<{ history: DiskSnapshot[] }>(
+        "/api/system/disk-history"
+      );
+      cachedDiskData = resp.history.map((s) => ({
+        time: formatTime(s.timestamp),
+        used: s.disk_used_gb,
+        free: Math.max(0, s.disk_total_gb - s.disk_used_gb),
+      }));
+      setDiskData(cachedDiskData);
+    } catch {
+      // silent
+    }
   }, []);
 
   useEffect(() => {
-    if (servers.length === 0) return;
-    fetchStatuses(servers);
-    const interval = setInterval(() => fetchStatuses(servers), 5000);
-    return () => clearInterval(interval);
-  }, [servers.length]);
+    fetchStats();
+    fetchDiskHistory();
+    const statsTimer = setInterval(fetchStats, 4000);
+    const diskTimer = setInterval(fetchDiskHistory, 60000);
+    return () => {
+      clearInterval(statsTimer);
+      clearInterval(diskTimer);
+    };
+  }, [fetchStats, fetchDiskHistory]);
 
-  async function handleAction(uuid: string, action: "start" | "stop" | "kill") {
-    try {
-      await api.post(`/api/servers/${uuid}/${action}`);
-      await fetchStatuses(servers);
-    } catch (e) {
-      if (e instanceof ApiError) {
-        addToast(e.message, "error", e.detail);
-      }
-    }
-  }
+  const card: React.CSSProperties = {
+    background: "var(--bg-secondary)",
+    border: "1px solid var(--border)",
+    borderRadius: "var(--radius)",
+    padding: "14px 16px 16px",
+  };
 
-  async function handleDelete(uuid: string, name: string) {
-    if (!(await showConfirm(`确定删除服务器 "${name}"？此操作不可恢复！`))) return;
-    try {
-      await api.delete(`/api/servers/${uuid}`);
-      addToast(`服务器 "${name}" 已删除`, "success");
-      fetchServers();
-    } catch (e) {
-      if (e instanceof ApiError) {
-        addToast(e.message, "error", e.detail);
-      } else {
-        addToast("删除失败", "error", String(e));
-      }
-    }
-  }
+  const cardTitle: React.CSSProperties = {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text-primary)",
+    marginBottom: 12,
+  };
 
-  if (loading) {
-    return (
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "var(--text-secondary)",
-        }}
-      >
-        加载中...
-      </div>
-    );
-  }
+  const tooltipStyle = {
+    contentStyle: {
+      background: "var(--bg-primary)",
+      border: "1px solid var(--border)",
+      borderRadius: 6,
+      fontSize: 12,
+      fontFamily: "var(--font)",
+    },
+  };
 
   return (
-    <div style={{ padding: 24, maxWidth: 900, margin: "0 auto", width: "100%" }}>
-      <div
+    <div style={{ padding: "20px 24px", height: "100%", overflow: "auto" }}>
+      <h1
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 20,
+          fontSize: 18,
+          fontWeight: 600,
+          marginBottom: 18,
+          color: "var(--text-primary)",
+          letterSpacing: "-0.02em",
         }}
       >
-        <h1 style={{ fontSize: 20, fontWeight: 600 }}>服务器列表</h1>
-      </div>
+        面板
+      </h1>
 
-      {servers.length === 0 ? (
+      {error && (
         <div
           style={{
-            textAlign: "center",
-            padding: "60px 0",
-            color: "var(--text-muted)",
+            padding: "7px 12px",
+            marginBottom: 14,
+            background: "var(--red-bg)",
+            color: "var(--red)",
+            borderRadius: "var(--radius-sm)",
+            fontSize: 12,
+            fontWeight: 500,
           }}
         >
-          <p style={{ marginBottom: 16, fontSize: 14 }}>暂无服务器</p>
-          <button
-            className="btn-primary"
-            onClick={() => navigate("/servers/new")}
-          >
-            创建第一个服务器
-          </button>
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {servers.map((s, i) => {
-            const st = statuses[s.uuid];
-            const running = st?.running;
-            return (
-              <motion.div
-                key={s.uuid}
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.04 }}
-                onClick={() => navigate(`/servers/${s.uuid}`)}
-                style={{
-                  padding: "16px 20px",
-                  background: "var(--bg-secondary)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius)",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 16,
-                  transition: "border-color 0.15s",
-                }}
-                onMouseEnter={(e) =>
-                  (e.currentTarget.style.borderColor = "var(--accent)")
-                }
-                onMouseLeave={(e) =>
-                  (e.currentTarget.style.borderColor = "var(--border)")
-                }
-              >
-                {/* Status dot */}
-                <div
-                  style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: 5,
-                    flexShrink: 0,
-                    background: running ? "var(--green)" : "var(--text-muted)",
-                    boxShadow: running
-                      ? "0 0 8px var(--green)"
-                      : "none",
-                  }}
-                />
-
-                {/* Info */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: 15,
-                      fontWeight: 600,
-                      color: "var(--text-primary)",
-                    }}
-                  >
-                    {s.name}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: "var(--text-muted)",
-                      marginTop: 2,
-                      display: "flex",
-                      gap: 12,
-                    }}
-                  >
-                    <span>{s.server_type}</span>
-                    <span>{s.java_version}</span>
-                    <span>{s.max_memory} MB</span>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div
-                  style={{ display: "flex", gap: 8 }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {running ? (
-                    <>
-                      <button
-                        className="btn-danger"
-                        style={{ fontSize: 12, padding: "4px 12px" }}
-                        onClick={() => handleAction(s.uuid, "stop")}
-                      >
-                        停止
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      className="btn-success"
-                      style={{ fontSize: 12, padding: "4px 12px" }}
-                      onClick={() => handleAction(s.uuid, "start")}
-                    >
-                      启动
-                    </button>
-                  )}
-                  <button
-                    className="btn-ghost"
-                    style={{ fontSize: 12, padding: "4px 8px", color: "var(--red)" }}
-                    onClick={() => handleDelete(s.uuid, s.name)}
-                  >
-                    删除
-                  </button>
-                </div>
-              </motion.div>
-            );
-          })}
+          {error}
         </div>
       )}
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(2, 1fr)",
+          gap: 14,
+        }}
+      >
+        {/* CPU */}
+        <div style={card}>
+          <div style={cardTitle}>CPU 使用率</div>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={cpuData.slice()}>
+              <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" strokeOpacity={0.5} />
+              <XAxis dataKey="time" stroke="var(--text-muted)" fontSize={10} interval="preserveStartEnd" />
+              <YAxis stroke="var(--text-muted)" fontSize={10} domain={[0, 100]} unit="%" />
+              <Tooltip {...tooltipStyle} />
+              <Line
+                type="monotone"
+                dataKey="cpu"
+                stroke="var(--accent)"
+                strokeWidth={1.5}
+                dot={false}
+                isAnimationActive={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Memory */}
+        <div style={card}>
+          <div style={cardTitle}>内存</div>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={memData.slice()}>
+              <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" strokeOpacity={0.5} />
+              <XAxis dataKey="time" stroke="var(--text-muted)" fontSize={10} interval="preserveStartEnd" />
+              <YAxis stroke="var(--text-muted)" fontSize={10} tickFormatter={formatGB} />
+              <Tooltip {...tooltipStyle} formatter={(v) => [formatGB(Number(v))]} />
+              <Line
+                type="monotone"
+                dataKey="used"
+                stroke="var(--accent)"
+                strokeWidth={1.5}
+                dot={false}
+                name="已用"
+                isAnimationActive={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="total"
+                stroke="var(--text-muted)"
+                strokeWidth={1.5}
+                strokeDasharray="4 4"
+                dot={false}
+                name="总量"
+                isAnimationActive={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Network */}
+        <div style={card}>
+          <div style={cardTitle}>网络 IO</div>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={netData.slice()}>
+              <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" strokeOpacity={0.5} />
+              <XAxis dataKey="time" stroke="var(--text-muted)" fontSize={10} interval="preserveStartEnd" />
+              <YAxis stroke="var(--text-muted)" fontSize={10} unit=" KB/s" />
+              <Tooltip {...tooltipStyle} />
+              <Line
+                type="monotone"
+                dataKey="sent"
+                stroke="var(--accent)"
+                strokeWidth={1.5}
+                dot={false}
+                name="发送"
+                isAnimationActive={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="recv"
+                stroke="var(--green)"
+                strokeWidth={1.5}
+                dot={false}
+                name="接收"
+                isAnimationActive={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Disk stacked area */}
+        <div style={card}>
+          <div style={cardTitle}>
+            服务器硬盘用量
+            {diskData.length === 0 && (
+              <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 8, textTransform: "none", letterSpacing: 0 }}>
+                暂无历史数据
+              </span>
+            )}
+          </div>
+          {diskData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={180}>
+              <AreaChart data={diskData.slice()}>
+                <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" strokeOpacity={0.5} />
+                <XAxis dataKey="time" stroke="var(--text-muted)" fontSize={10} interval="preserveStartEnd" />
+                <YAxis stroke="var(--text-muted)" fontSize={10} tickFormatter={formatGB} />
+                <Tooltip {...tooltipStyle} formatter={(v) => [formatGB(Number(v))]} />
+                <Area
+                  type="monotone"
+                  dataKey="used"
+                  stackId="1"
+                  stroke="var(--accent)"
+                  fill="var(--accent-light)"
+                  name="已用"
+                  isAnimationActive={false}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="free"
+                  stackId="1"
+                  stroke="var(--border)"
+                  fill="var(--bg-tertiary)"
+                  name="空闲"
+                  isAnimationActive={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div
+              style={{
+                height: 180,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--text-muted)",
+                fontSize: 12,
+              }}
+            >
+              等待数据采集...
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

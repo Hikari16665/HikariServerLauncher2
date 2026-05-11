@@ -69,3 +69,21 @@ export interface VersionInfo {
   type: string;
   release_time: string;
 }
+
+export interface SystemStats {
+  cpu_percent: number;
+  mem_used_gb: number;
+  mem_total_gb: number;
+  mem_percent: number;
+  net_sent_kbps: number;
+  net_recv_kbps: number;
+  disk_total_gb: number;
+  disk_used_gb: number;
+  timestamp: number;
+}
+
+export interface DiskSnapshot {
+  timestamp: number;
+  disk_total_gb: number;
+  disk_used_gb: number;
+}

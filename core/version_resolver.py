@@ -23,6 +23,16 @@ def _http_get(url: str, **kwargs) -> Optional[httpx.Response]:
     return None
 
 
+def _http_post_json(url: str, json_data: dict) -> Optional[httpx.Response]:
+    try:
+        with httpx.Client(timeout=httpx.Timeout(30.0, connect=15.0)) as client:
+            resp = client.post(url, json=json_data, follow_redirects=True)
+            return resp
+    except Exception:
+        pass
+    return None
+
+
 def _ordered_sources(sources: list, use_mirror: bool) -> list:
     """Return sources in normal or mirror-first order."""
     if use_mirror:
@@ -68,53 +78,194 @@ def get_vanilla_versions(use_mirror: bool = False) -> Dict[str, Any]:
     }
 
 
-# ── Paper ────────────────────────────────────────────────────────
+# ── Paper (GraphQL) ─────────────────────────────────────────────────
 
+PAPER_GRAPHQL_URL = "https://fill.papermc.io/graphql"
 
-def get_paper_versions() -> Dict[str, Any]:
-    """Get PaperMC latest version info.
+PAPER_FAMILIES_QUERY = """
+query ProjectFamilies($id: String!) {
+  project(key: $id) {
+    id
+    families { id key __typename }
+    __typename
+  }
+}
+"""
 
-    Returns stable and experimental version names and download URLs.
-    """
-    source = SourceManager().get()
-    paper = source.mc.paper
+PAPER_FAMILY_QUERY = """
+query Family($project: String!, $id: String!) {
+  project(key: $project) {
+    id
+    family(key: $id) {
+      id key
+      java {
+        version { minimum __typename }
+        flags { recommended __typename }
+        __typename
+      }
+      __typename
+    }
+    versions(filterBy: {familyKey: $id}, first: 100, orderBy: {direction: DESC}) {
+      edges {
+        node {
+          id key
+          family { id key __typename }
+          support { status end __typename }
+          __typename
+        }
+        __typename
+      }
+      pageInfo { hasNextPage endCursor __typename }
+      __typename
+    }
+    __typename
+  }
+}
+"""
 
-    stable_info = None
-    experimental_info = None
-
-    for ps in paper.list:
-        if ps.type == "stable" and not stable_info:
-            stable_info = {
-                "version": paper.latestVersionName,
-                "download_url": ps.latest,
+PAPER_BUILDS_QUERY = """
+query VersionBuilds($projectKey: String!, $versionKey: String!, $after: String) {
+  project(key: $projectKey) {
+    id
+    version(key: $versionKey) {
+      id
+      builds(first: 25, after: $after, orderBy: {direction: DESC}) {
+        edges {
+          node {
+            id number channel createdAt
+            downloads {
+              name size url
+              checksums { sha256 __typename }
+              __typename
             }
-        elif ps.type == "experimental" and not experimental_info:
-            experimental_info = {
-                "version": paper.experimentalVersionName,
-                "download_url": ps.latest,
-            }
+            commits { sha message __typename }
+            __typename
+          }
+          __typename
+        }
+        pageInfo { hasNextPage hasPreviousPage startCursor endCursor __typename }
+        __typename
+      }
+      __typename
+    }
+    __typename
+  }
+}
+"""
 
-    # Fetch builds for the latest version from PaperMC API
-    builds = []
+
+def _paper_graphql(query: str, variables: dict) -> Optional[dict]:
+    """Execute a GraphQL query against the PaperMC fill API."""
     try:
-        resp = _http_get(
-            f"https://api.papermc.io/v2/projects/paper/versions/{paper.latestVersionName}/builds"
-        )
-        if resp:
-            data = resp.json()
-            for b in data.get("builds", []):
-                builds.append({
-                    "build": b.get("build"),
-                    "version": b.get("version"),
-                    "channel": b.get("channel", "default"),
-                })
+        import json as _json
+        payload = {"operationName": None, "query": query, "variables": variables}
+        resp = _http_post_json(PAPER_GRAPHQL_URL, payload)
+        if resp and resp.status_code == 200:
+            return resp.json()
     except Exception:
         pass
+    return None
+
+
+def get_paper_versions(mc_version: Optional[str] = None) -> Dict[str, Any]:
+    """Get PaperMC version families and sub-versions using GraphQL.
+
+    Without mc_version: returns all families as versions list.
+    With mc_version: returns sub-versions for that family plus Java requirements.
+    """
+    if mc_version:
+        # Return sub-versions for a specific family
+        sub_data = _paper_graphql(
+            PAPER_FAMILY_QUERY,
+            {"project": "paper", "id": mc_version},
+        )
+        sub_versions = []
+        java_min = 0
+        recommended_flags = []
+
+        if sub_data:
+            sub_project = sub_data.get("data", {}).get("project", {})
+            sub_family = sub_project.get("family", {})
+            java_info = sub_family.get("java", {})
+            java_min = java_info.get("version", {}).get("minimum", 0) or 0
+            recommended_flags = java_info.get("flags", {}).get("recommended", []) or []
+
+            versions_data = sub_project.get("versions", {})
+            for edge in versions_data.get("edges", []):
+                node = edge.get("node", {})
+                sub_versions.append({
+                    "id": node.get("id", ""),
+                    "key": node.get("key", ""),
+                    "support_status": node.get("support", {}).get("status", ""),
+                    "support_end": node.get("support", {}).get("end"),
+                })
+
+        return {
+            "mc_version": mc_version,
+            "sub_versions": sub_versions,
+            "java_minimum": java_min,
+            "recommended_flags": recommended_flags,
+        }
+
+    # Without mc_version: return all families as version list
+    families_data = _paper_graphql(PAPER_FAMILIES_QUERY, {"id": "paper"})
+    versions = []
+
+    if families_data:
+        project = families_data.get("data", {}).get("project", {})
+        raw_families = project.get("families", [])
+
+        for fam in raw_families:
+            versions.append({
+                "id": fam.get("key", ""),
+                "type": "release",
+                "release_time": "",
+            })
 
     return {
-        "latest_stable": stable_info,
-        "latest_experimental": experimental_info,
-        "latest_version_builds": builds,
+        "releases": versions,
+        "project": "paper",
+    }
+
+
+def get_paper_builds(sub_version: str) -> Dict[str, Any]:
+    """Get PaperMC builds for a specific sub-version using GraphQL.
+
+    Returns builds with download URLs, channel info, and creation dates.
+    """
+    data = _paper_graphql(
+        PAPER_BUILDS_QUERY,
+        {"projectKey": "paper", "versionKey": sub_version},
+    )
+    builds = []
+
+    if data:
+        project = data.get("data", {}).get("project", {})
+        version_data = project.get("version", {})
+        builds_data = version_data.get("builds", {})
+
+        for edge in builds_data.get("edges", []):
+            node = edge.get("node", {})
+            downloads = node.get("downloads", [])
+            download_url = downloads[0].get("url", "") if downloads else ""
+            download_name = downloads[0].get("name", "") if downloads else ""
+            sha256 = ""
+            if downloads:
+                checksums = downloads[0].get("checksums", {})
+                sha256 = checksums.get("sha256", "")
+
+            builds.append({
+                "number": node.get("number", 0),
+                "channel": node.get("channel", "default"),
+                "created_at": node.get("createdAt", ""),
+                "download_url": download_url,
+                "download_name": download_name,
+                "sha256": sha256,
+            })
+
+    return {
+        "sub_version": sub_version,
+        "builds": builds,
     }
 
 

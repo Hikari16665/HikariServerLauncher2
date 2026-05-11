@@ -5,9 +5,11 @@ import Layout from "./components/Layout";
 import ToastContainer from "./components/Toast";
 import ConfirmDialog from "./components/ConfirmDialog";
 import Dashboard from "./pages/Dashboard";
+import Servers from "./pages/Servers";
 import ServerDetail from "./pages/ServerDetail";
 import CreateServer from "./pages/CreateServer";
 import Settings from "./pages/Settings";
+import About from "./pages/About";
 import Onboarding from "./pages/Onboarding";
 import Login from "./pages/Login";
 
@@ -36,9 +38,11 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<Layout />}>
         <Route index element={<Dashboard />} />
+        <Route path="servers" element={<Servers />} />
         <Route path="servers/:uuid" element={<ServerDetail />} />
-        <Route path="servers/new" element={<CreateServer />} />
+        <Route path="install" element={<CreateServer />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="about" element={<About />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
