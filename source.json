@@ -84,7 +84,8 @@
                     "11": "https://jdk.114914.xyz/jdk-11.zip",
                     "16": "https://jdk.114914.xyz/jdk-16.zip",
                     "17": "https://jdk.114914.xyz/jdk-17.zip",
-                    "21": "https://jdk.114914.xyz/jdk-21.zip"
+                    "21": "https://jdk.114914.xyz/jdk-21.zip",
+                    "25": "https://hsl-config.oss-cn-beijing.aliyuncs.com/jdk-25.zip"
                 },
                 "linux": {
                     "6": "https://jdk.114914.xyz/jdk-6-linux.zip",
@@ -92,7 +93,8 @@
                     "11": "https://jdk.114914.xyz/jdk11-linux.zip",
                     "16": "https://jdk.114914.xyz/jdk-16-linux.zip",
                     "17": "https://jdk.114914.xyz/jdk-17-linux.zip",
-                    "21": "https://jdk.114914.xyz/jdk-21-linux.zip"
+                    "21": "https://jdk.114914.xyz/jdk-21-linux.zip",
+                    "25": "https://hsl-config.oss-cn-beijing.aliyuncs.com/jdk-25-linux.zip"
                 }
             },
             {
@@ -103,7 +105,8 @@
                     "11": "https://ipv4wp.axzzz.top:9503/f/3w5dCk/java11.zip",
                     "16": "https://ipv4wp.axzzz.top:9503/f/lR7kS5/java16.zip",
                     "17": "https://ipv4wp.axzzz.top:9503/f/OB3ai7/java17.zip",
-                    "21": "https://ipv4wp.axzzz.top:9503/f/dd1Mil/java21.zip"
+                    "21": "https://ipv4wp.axzzz.top:9503/f/dd1Mil/java21.zip",
+                    "25": "https://hsl-config.oss-cn-beijing.aliyuncs.com/jdk-25.zip"
                 },
                 "linux": {
                     "6": "https://ipv4wp.axzzz.top:9503/f/XR3ZI4/java6lin.zip",
@@ -111,7 +114,8 @@
                     "11": "https://ipv4wp.axzzz.top:9503/f/AXMNh8/java11lin.zip",
                     "16": "https://ipv4wp.axzzz.top:9503/f/nnDBUk/java16lin.zip",
                     "17": "https://ipv4wp.axzzz.top:9503/f/Ve3AUW/java17lin.zip",
-                    "21": "https://ipv4wp.axzzz.top:9503/f/9jpEfk/java21lin.zip"
+                    "21": "https://ipv4wp.axzzz.top:9503/f/9jpEfk/java21lin.zip",
+                    "25": "https://hsl-config.oss-cn-beijing.aliyuncs.com/jdk-25-linux.zip"
                 }
             }
     ]},

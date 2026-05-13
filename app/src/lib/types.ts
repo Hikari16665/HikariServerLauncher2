@@ -82,8 +82,14 @@ export interface SystemStats {
   timestamp: number;
 }
 
+export interface ServerDiskUsage {
+  name: string;
+  used_gb: number;
+}
+
 export interface DiskSnapshot {
   timestamp: number;
   disk_total_gb: number;
   disk_used_gb: number;
+  server_usages?: ServerDiskUsage[];
 }

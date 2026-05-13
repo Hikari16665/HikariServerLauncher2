@@ -438,6 +438,38 @@ def get_fabric_versions(use_mirror: bool = False) -> Dict[str, Any]:
 # ── Java ─────────────────────────────────────────────────────────
 
 
+def get_recommended_java_version(mc_version: str) -> str:
+    """Return recommended Java major version for a Minecraft version string.
+
+    Mapping:
+      MC 1.x  (x <= 16)   -> Java 8
+      MC 1.17 - 1.19.x    -> Java 17
+      MC 1.20 - 1.26.0    -> Java 21
+      MC 1.26.1+ / 2.x+   -> Java 25
+    """
+    try:
+        parts = mc_version.split(".")
+        major = int(parts[0])
+        if major == 1:
+            minor = int(parts[1]) if len(parts) > 1 else 0
+            patch = int(parts[2]) if len(parts) > 2 else 0
+            if minor <= 16:
+                return "8"
+            elif minor <= 19:
+                return "17"
+            elif minor <= 25:
+                return "21"
+            elif minor == 26 and patch == 0:
+                return "21"
+            else:
+                return "25"
+        else:
+            return "25"
+    except (ValueError, IndexError):
+        pass
+    return "21"
+
+
 def get_java_versions(use_mirror: bool = False) -> Dict[str, Any]:
     """Get available Java versions.
 

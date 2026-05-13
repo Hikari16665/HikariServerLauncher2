@@ -4,7 +4,8 @@ import { useSettings } from "../store/settings";
 export function useWebSocket(
   path: string,
   onMessage: (data: string) => void,
-  enabled = true
+  enabled = true,
+  skipHistoryOnReconnect = false
 ) {
   const wsRef = useRef<WebSocket | null>(null);
   const onMessageRef = useRef(onMessage);
@@ -13,10 +14,13 @@ export function useWebSocket(
   const apiUrl = useSettings((s) => s.apiUrl);
   const token = useSettings((s) => s.token);
 
-  const connect = useCallback(() => {
+  const connect = useCallback((isReconnect = false) => {
     if (!enabled) return;
 
-    const wsUrl = apiUrl.replace(/^http/, "ws") + path + `?token=${token || ""}`;
+    let wsUrl = apiUrl.replace(/^http/, "ws") + path + `?token=${token || ""}`;
+    if (skipHistoryOnReconnect && isReconnect) {
+      wsUrl += "&skip_history=1";
+    }
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
@@ -26,10 +30,10 @@ export function useWebSocket(
     };
 
     return ws;
-  }, [apiUrl, path, enabled, token]);
+  }, [apiUrl, path, enabled, token, skipHistoryOnReconnect]);
 
   useEffect(() => {
-    const ws = connect();
+    const ws = connect(false);
     return () => {
       ws?.close();
       wsRef.current = null;
@@ -42,6 +46,8 @@ export function useWebSocket(
         wsRef.current.send(data);
       }
     }, []),
-    reconnect: connect,
+    reconnect: useCallback(() => {
+      connect(true);
+    }, [connect]),
   };
 }

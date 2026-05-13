@@ -121,7 +121,7 @@ check_docker_installed()
 
 monitor = SystemMonitor()
 # Start disk usage history collector (snapshot every hour)
-monitor.start_collector(lambda: [s.path for s in workspace.get_valid_servers()])
+monitor.start_collector(lambda: [(s.path, s.name) for s in workspace.get_valid_servers()])
 
 env = EnvironmentManager()
 logger.info("EnvironmentManager 已初始化。")
@@ -734,6 +734,17 @@ def get_fabric_versions_endpoint():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/versions/recommended-java", methods=["GET"])
+def recommended_java_endpoint():
+    from core.version_resolver import get_recommended_java_version
+
+    mc_version = request.args.get("mc_version", "")
+    if not mc_version:
+        return jsonify({"error": "mc_version is required"}), 400
+    recommended = get_recommended_java_version(mc_version)
+    return jsonify({"mc_version": mc_version, "recommended_java": int(recommended)})
+
+
 @app.route("/api/versions/java", methods=["GET"])
 def get_java_versions_endpoint():
     if not auth.require_auth(request):
@@ -1153,8 +1164,9 @@ if sock is not None:
             )
         )
 
-        # Send buffered history if server is running
-        if spm.is_running(server_uuid):
+        # Send buffered history if server is running (skip on reconnect)
+        skip_history = ws_request.args.get("skip_history", "0") == "1"
+        if spm.is_running(server_uuid) and not skip_history:
             for line in spm.get_history(server_uuid):
                 ws.send(json.dumps({"type": "log", "line": line}))
 
@@ -1262,7 +1274,10 @@ if __name__ == "__main__":
     flask_thread.start()
 
     # TUI refreshes in its own daemon thread
-    tui.start()
+    if ConfigKey.TUI_ENABLED.get():
+        tui.start()
+    else:
+        logger.info("TUI 已禁用 (tui.enabled = false)")
 
     try:
         while True:

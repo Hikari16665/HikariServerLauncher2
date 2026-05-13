@@ -11,5 +11,7 @@ workspace:
 server:
   java:
     auto_download: true
+tui:
+  enabled: false
 backup:
   dir: "backups"

@@ -32,7 +32,9 @@ export default function Terminal({ serverUuid, running }: Props) {
       } catch {
         termRef.current?.write(raw);
       }
-    }
+    },
+    true,
+    true
   );
 
   // Reconnect when server starts

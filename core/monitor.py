@@ -1,8 +1,24 @@
+import os
 import threading
 import time
 import psutil
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import List, Optional, Callable
+
+
+def _get_dir_size(path: str) -> int:
+    """Calculate total size of all files in a directory tree. Returns bytes."""
+    total = 0
+    try:
+        for dirpath, _, filenames in os.walk(path):
+            for f in filenames:
+                try:
+                    total += os.path.getsize(os.path.join(dirpath, f))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return total
 
 
 @dataclass
@@ -23,6 +39,7 @@ class DiskSnapshot:
     timestamp: float
     disk_total_gb: float
     disk_used_gb: float
+    server_usages: list = field(default_factory=list)
 
 
 class SystemMonitor:
@@ -65,8 +82,13 @@ class SystemMonitor:
         disk_total = 0.0
         disk_used = 0.0
         if server_paths:
+            seen_devices = set()
             for path in server_paths:
                 try:
+                    stat = os.stat(path)
+                    if stat.st_dev in seen_devices:
+                        continue
+                    seen_devices.add(stat.st_dev)
                     usage = psutil.disk_usage(path)
                     disk_total += usage.total
                     disk_used += usage.used
@@ -90,43 +112,55 @@ class SystemMonitor:
         with self._history_lock:
             return [asdict(s) for s in self._disk_history]
 
-    def collect_disk_snapshot(self, server_paths: List[str]):
-        disk_total = 0.0
-        disk_used = 0.0
-        if server_paths:
-            for path in server_paths:
-                try:
-                    usage = psutil.disk_usage(path)
-                    disk_total += usage.total
-                    disk_used += usage.used
-                except Exception:
-                    pass
+    def collect_disk_snapshot(self, server_paths: List[str], server_names: List[str] = None):
+        if server_names is None:
+            server_names = [os.path.basename(p) for p in server_paths]
+        server_usages = []
+        total_used = 0.0
+        for i, path in enumerate(server_paths):
+            try:
+                size_bytes = _get_dir_size(path)
+                size_gb = round(size_bytes / (1024**3), 2)
+                server_usages.append({"name": server_names[i] if i < len(server_names) else os.path.basename(path), "used_gb": size_gb})
+                total_used += size_gb
+            except Exception:
+                pass
+        total_used = round(total_used, 2)
         snap = DiskSnapshot(
             timestamp=time.time(),
-            disk_total_gb=round(disk_total / (1024**3), 2) if disk_total > 0 else 0,
-            disk_used_gb=round(disk_used / (1024**3), 2) if disk_total > 0 else 0,
+            disk_total_gb=total_used,
+            disk_used_gb=total_used,
+            server_usages=server_usages,
         )
         with self._history_lock:
             self._disk_history.append(snap)
             if len(self._disk_history) > 168:
                 self._disk_history = self._disk_history[-168:]
 
-    def start_collector(self, get_server_paths_callback: Callable[[], List[str]]):
+    def start_collector(self, get_server_info_callback: Callable[[], List[tuple]]):
+        """Start background disk usage collector.
+
+        Args:
+            get_server_info_callback: Returns list of (path, name) tuples.
+        """
         if self._collector_thread and self._collector_thread.is_alive():
             return
 
         def _loop():
-            # Take an initial snapshot immediately
             try:
-                paths = get_server_paths_callback()
-                self.collect_disk_snapshot(paths)
+                info = get_server_info_callback()
+                paths = [p for p, _ in info]
+                names = [n for _, n in info]
+                self.collect_disk_snapshot(paths, names)
             except Exception:
                 pass
             while True:
                 time.sleep(3600)
                 try:
-                    paths = get_server_paths_callback()
-                    self.collect_disk_snapshot(paths)
+                    info = get_server_info_callback()
+                    paths = [p for p, _ in info]
+                    names = [n for _, n in info]
+                    self.collect_disk_snapshot(paths, names)
                 except Exception:
                     pass
 

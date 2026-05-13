@@ -11,7 +11,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { api } from "../lib/api";
-import type { SystemStats, DiskSnapshot } from "../lib/types";
+import type { SystemStats, DiskSnapshot, ServerDiskUsage } from "../lib/types";
 
 const MAX_POINTS = 60;
 
@@ -31,8 +31,8 @@ interface NetPoint {
 }
 interface DiskPoint {
   time: string;
-  used: number;
-  free: number;
+  total: number;
+  servers: ServerDiskUsage[];
 }
 
 // Module-level ring buffers — survive page navigation
@@ -98,8 +98,8 @@ export default function Dashboard() {
       );
       cachedDiskData = resp.history.map((s) => ({
         time: formatTime(s.timestamp),
-        used: s.disk_used_gb,
-        free: Math.max(0, s.disk_total_gb - s.disk_used_gb),
+        total: s.disk_total_gb,
+        servers: s.server_usages || [],
       }));
       setDiskData(cachedDiskData);
     } catch {
@@ -280,24 +280,23 @@ export default function Dashboard() {
                 <XAxis dataKey="time" stroke="var(--text-muted)" fontSize={10} interval="preserveStartEnd" />
                 <YAxis stroke="var(--text-muted)" fontSize={10} tickFormatter={formatGB} />
                 <Tooltip {...tooltipStyle} formatter={(v) => [formatGB(Number(v))]} />
-                <Area
-                  type="monotone"
-                  dataKey="used"
-                  stackId="1"
-                  stroke="var(--accent)"
-                  fill="var(--accent-light)"
-                  name="已用"
-                  isAnimationActive={false}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="free"
-                  stackId="1"
-                  stroke="var(--border)"
-                  fill="var(--bg-tertiary)"
-                  name="空闲"
-                  isAnimationActive={false}
-                />
+                {diskData[0]?.servers.map((s, i) => {
+                  const colors = ["var(--accent)", "var(--green)", "var(--yellow)", "#a371f7", "#ff7b72", "#56d4dd"];
+                  const c = colors[i % colors.length];
+                  return (
+                    <Area
+                      key={s.name}
+                      type="monotone"
+                      dataKey={(pt: DiskPoint) => pt.servers[i]?.used_gb ?? 0}
+                      stackId="1"
+                      stroke={c}
+                      fill={c}
+                      fillOpacity={0.3}
+                      name={s.name}
+                      isAnimationActive={false}
+                    />
+                  );
+                })}
               </AreaChart>
             </ResponsiveContainer>
           ) : (

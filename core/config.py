@@ -23,6 +23,7 @@ class ConfigKey(Enum):
     WORKSPACE_PATH = "workspace.path"
     SERVER_JAVA_AUTO_DOWNLOAD = "server.java.auto_download"
     BACKUP_DIR = "backup.dir"
+    TUI_ENABLED = "tui.enabled"
 
     def get(self) -> Any:
         return ConfigManager().get(self.value)

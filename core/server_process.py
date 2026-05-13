@@ -6,6 +6,8 @@ Handles start / stop / kill / command / stdout broadcast to WebSocket listeners.
 import os
 import platform
 import queue
+import re
+import shlex
 import subprocess
 import sys
 import threading
@@ -46,35 +48,79 @@ def _find_java_binary(java_version: str) -> Optional[str]:
 
 def _build_forge_like_command(server: Server, java_binary: str, lib_path: str) -> List[str]:
     """Build a run command for Forge or NeoForge using args-file launch pattern."""
+    log = Logger()
+
+    # 1. Read user_jvm_args.txt, filtering out Xmx/Xms (HSL2 controls memory)
     jvm_args_path = os.path.join(server.path, "user_jvm_args.txt")
     user_jvm_args = []
+    filtered_out = []
     if os.path.exists(jvm_args_path):
         with open(jvm_args_path, "r") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#"):
+                    if re.match(r'^-Xm[sx]\d', line):
+                        filtered_out.append(line)
+                        continue
                     user_jvm_args.append(line)
+    if filtered_out:
+        log.info(f"从 user_jvm_args.txt 中过滤内存参数: {' '.join(filtered_out)}")
 
+    # 2. Discover args file — prefer parsing run.sh/run.bat for accuracy
     args_file = None
-    libraries_dir = os.path.join(server.path, "libraries", *lib_path.split("/"))
-    if os.path.exists(libraries_dir):
-        for entry in os.listdir(libraries_dir):
-            version_dir = os.path.join(libraries_dir, entry)
-            if os.path.isdir(version_dir):
-                if platform.system() != "Windows":
-                    candidate = os.path.join(version_dir, "unix_args.txt")
-                else:
-                    candidate = os.path.join(version_dir, "win_args.txt")
-                if os.path.exists(candidate):
-                    args_file = candidate
-                    break
+    script_name = "run.bat" if platform.system() == "Windows" else "run.sh"
+    run_script = os.path.join(server.path, script_name)
 
-    cmd = [java_binary, "-Dfile.encoding=utf-8", f"-Xmx{server.max_memory}M"]
-    cmd.extend(user_jvm_args)
+    if os.path.exists(run_script):
+        with open(run_script, "r") as f:
+            content = f.read()
+        at_files = re.findall(r'@(\S+)', content)
+        lib_path_norm = lib_path.replace("/", os.sep)
+        for at_path in at_files:
+            candidate = os.path.join(server.path, at_path)
+            if os.path.exists(candidate) and lib_path_norm in candidate:
+                args_file = candidate
+                log.info(f"通过 {script_name} 找到 args 文件: {at_path}")
+                break
+        if not args_file:
+            log.warning(f"在 {script_name} 中未找到 {lib_path} 的 args 文件，回退到目录扫描")
+
+    # Fallback: scan libraries directory
+    if not args_file:
+        libraries_dir = os.path.join(server.path, "libraries", *lib_path.split("/"))
+        if os.path.exists(libraries_dir):
+            found = []
+            for entry in sorted(os.listdir(libraries_dir), reverse=True):
+                version_dir = os.path.join(libraries_dir, entry)
+                if os.path.isdir(version_dir):
+                    if platform.system() != "Windows":
+                        candidate = os.path.join(version_dir, "unix_args.txt")
+                    else:
+                        candidate = os.path.join(version_dir, "win_args.txt")
+                    if os.path.exists(candidate):
+                        found.append(entry)
+                        args_file = candidate
+                        break
+            if len(found) > 1:
+                log.warning(f"找到多个 forge 版本目录: {found}，使用最新版本")
+            if args_file:
+                log.info(f"通过目录扫描找到 args 文件: {args_file}")
+
+    if not args_file:
+        log.warning(f"未找到 {server.server_type.value} 的 args 文件，服务器可能无法启动")
+
+    # 3. Build command
+    cmd = [java_binary, f"-Xmx{server.max_memory}M"]
+    if user_jvm_args:
+        cmd.extend(user_jvm_args)
     if args_file:
-        cmd.extend(["@" + args_file])
+        cmd.append("@" + args_file)
     if server.extra_args:
-        cmd.append(server.extra_args)
+        try:
+            cmd.extend(shlex.split(server.extra_args))
+        except ValueError:
+            cmd.append(server.extra_args)
+
     return cmd
 
 
@@ -86,13 +132,19 @@ def _build_run_command(server: Server) -> List[str]:
         java_binary = "java"
 
     if server.server_type in (ServerType.VANILLA, ServerType.PAPER, ServerType.FABRIC, ServerType.APRIL):
+        extra = []
+        if server.extra_args:
+            try:
+                extra = shlex.split(server.extra_args)
+            except ValueError:
+                extra = [server.extra_args]
         return [
             java_binary,
-            "-Dfile.encoding=utf-8",
             f"-Xmx{server.max_memory}M",
+        ] + extra + [
             "-jar",
             "server.jar",
-        ] + ([server.extra_args] if server.extra_args else [])
+        ]
 
     elif server.server_type == ServerType.FORGE:
         return _build_forge_like_command(server, java_binary, "net/minecraftforge/forge")
@@ -234,6 +286,12 @@ class ServerProcessManager:
             del self._running[server.uuid]
 
         command = _build_run_command(server)
+
+        log = Logger()
+        log.info(f"启动服务器 {server.name} ({server.uuid[:8]})")
+        log.info(f"Java 版本: {server.java_version}  二进制: {_find_java_binary(server.java_version) or '(system java)'}")
+        log.info(f"工作目录: {server.path}")
+        log.info(f"启动命令: {' '.join(command)}")
 
         try:
             process = subprocess.Popen(

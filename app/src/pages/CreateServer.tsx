@@ -97,6 +97,8 @@ export default function CreateServer() {
   const [subVersions, setSubVersions] = useState<VersionInfo[]>([]);
   const [maxMemory, setMaxMemory] = useState(2048);
   const [javaVersion, setJavaVersion] = useState("21");
+  const [recommendedJava, setRecommendedJava] = useState(21);
+  const [javaWarning, setJavaWarning] = useState(false);
   const [extraArgs, setExtraArgs] = useState("");
   const [filter, setFilter] = useState("");
   const [creating, setCreating] = useState(false);
@@ -151,6 +153,22 @@ export default function CreateServer() {
       })
       .finally(() => setLoadingSub(false));
   }, [mcVersion, serverType]);
+
+  // Auto-detect recommended Java version when MC version changes
+  useEffect(() => {
+    const mcVer = NEEDS_MC_VERSION.includes(serverType) ? mcVersion : version;
+    if (!mcVer) return;
+    api
+      .get<{ recommended_java: number }>(
+        `/api/versions/recommended-java?mc_version=${encodeURIComponent(mcVer)}`
+      )
+      .then((data) => {
+        setRecommendedJava(data.recommended_java);
+        setJavaVersion(String(data.recommended_java));
+        setJavaWarning(false);
+      })
+      .catch(() => {});
+  }, [mcVersion, version, serverType]);
 
   async function handleCreate() {
     if (!name.trim()) { setError("请输入服务器名称"); return; }
@@ -374,13 +392,22 @@ export default function CreateServer() {
             <label style={labelStyle}>Java 版本</label>
             <select
               value={javaVersion}
-              onChange={(e) => setJavaVersion(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setJavaVersion(v);
+                setJavaWarning(Number(v) !== recommendedJava);
+              }}
               style={{ width: "100%" }}
             >
-              {["8", "11", "17", "21"].map((j) => (
+              {["8", "11", "17", "21", "25"].map((j) => (
                 <option key={j} value={j}>Java {j}</option>
               ))}
             </select>
+            {javaWarning && (
+              <p style={{ color: "var(--yellow)", fontSize: 11, marginTop: 4, marginBottom: 0, lineHeight: 1.4 }}>
+                使用非推荐版本Java可能会无法启动服务器，后果自负
+              </p>
+            )}
           </div>
         </div>
       </div>
