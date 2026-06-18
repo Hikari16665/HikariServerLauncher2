@@ -1,11 +1,10 @@
-import os
-import sys
-import shutil
 import json
+import os
+import shutil
+import sys
 from typing import Optional
 
 from pydantic import BaseModel
-from typing import List, Dict
 
 
 class VanillaSource(BaseModel):
@@ -15,7 +14,7 @@ class VanillaSource(BaseModel):
 
 
 class Vanilla(BaseModel):
-    list: List[VanillaSource]
+    list: list[VanillaSource]
 
 
 class PaperSource(BaseModel):
@@ -26,7 +25,7 @@ class PaperSource(BaseModel):
 class Paper(BaseModel):
     latestVersionName: str
     experimentalVersionName: str
-    list: List[PaperSource]
+    list: list[PaperSource]
 
 
 class AprilVersion(BaseModel):
@@ -36,7 +35,7 @@ class AprilVersion(BaseModel):
 
 
 class April(BaseModel):
-    list: List[AprilVersion]
+    list: list[AprilVersion]
 
 
 class MC(BaseModel):
@@ -47,14 +46,14 @@ class MC(BaseModel):
 
 class ForgeSource(BaseModel):
     type: str
-    metadata: Optional[str]
-    download: Optional[str]
-    supportList: Optional[str]
-    getByVersion: Optional[str]
+    metadata: str | None
+    download: str | None
+    supportList: str | None
+    getByVersion: str | None
 
 
 class Forge(BaseModel):
-    list: List[ForgeSource]
+    list: list[ForgeSource]
 
 
 class NeoForgeSource(BaseModel):
@@ -64,7 +63,7 @@ class NeoForgeSource(BaseModel):
 
 
 class NeoForge(BaseModel):
-    list: List[NeoForgeSource]
+    list: list[NeoForgeSource]
 
 
 class FabricSource(BaseModel):
@@ -75,17 +74,17 @@ class FabricSource(BaseModel):
 
 
 class Fabric(BaseModel):
-    list: List[FabricSource]
+    list: list[FabricSource]
 
 
 class JavaSource(BaseModel):
     type: str
-    windows: Dict[str, str]
-    linux: Dict[str, str]
+    windows: dict[str, str]
+    linux: dict[str, str]
 
 
 class Java(BaseModel):
-    list: List[JavaSource]
+    list: list[JavaSource]
 
 
 class OpenFrp(BaseModel):
@@ -110,12 +109,15 @@ class Source(BaseModel):
 
 
 class SourceManager:
-    _instance: Optional['SourceManager'] = None
-    _cache: Optional[Source] = None
+    _instance: Optional["SourceManager"] = None
+    _cache: Source | None = None
     _source_path: str = os.path.join(os.path.dirname(os.path.dirname(__file__)), "source.json")
     _default_source_path: str = os.path.join(
-        sys._MEIPASS if getattr(sys, "frozen", False) else os.path.dirname(os.path.dirname(__file__)),
-        "install", "default_source.json"
+        sys._MEIPASS
+        if getattr(sys, "frozen", False)
+        else os.path.dirname(os.path.dirname(__file__)),
+        "install",
+        "default_source.json",
     )
 
     def __new__(cls):
@@ -124,7 +126,7 @@ class SourceManager:
         return cls._instance
 
     def __init__(self):
-        if not hasattr(self, '_initialized'):
+        if not hasattr(self, "_initialized"):
             self._ensure_source_exists()
             self._load_source()
             self._initialized = True
@@ -137,7 +139,7 @@ class SourceManager:
                 raise FileNotFoundError(f"Default source not found at {self._default_source_path}")
 
     def _load_source(self):
-        with open(self._source_path, 'r', encoding='utf-8') as f:
+        with open(self._source_path, encoding="utf-8") as f:
             data = json.load(f)
             self._cache = Source(**data)
 

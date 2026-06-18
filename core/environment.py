@@ -1,10 +1,10 @@
+import ipaddress
 import os
 import platform
 import socket
 import sys
-import ipaddress
 from dataclasses import dataclass
-from typing import Optional, Dict
+from typing import Optional
 
 import httpx
 import stun
@@ -20,11 +20,11 @@ class CGNATResult:
 @dataclass
 class NetworkInfo:
     nat_type: str
-    mapped_address: Optional[str] = None
-    mapped_port: Optional[int] = None
-    external_ip: Optional[str] = None
-    cgnat: Optional[CGNATResult] = None
-    stun_server: Optional[str] = None
+    mapped_address: str | None = None
+    mapped_port: int | None = None
+    external_ip: str | None = None
+    cgnat: CGNATResult | None = None
+    stun_server: str | None = None
 
 
 @dataclass
@@ -33,13 +33,13 @@ class SystemInfo:
     system_version: str
     arch: str
     processor: str
-    ip_address: Optional[str] = None
-    public_ip: Optional[str] = None
-    network_info: Optional[NetworkInfo] = None
+    ip_address: str | None = None
+    public_ip: str | None = None
+    network_info: NetworkInfo | None = None
 
 
 class EnvironmentManager:
-    _instance: Optional['EnvironmentManager'] = None
+    _instance: Optional["EnvironmentManager"] = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -47,23 +47,25 @@ class EnvironmentManager:
         return cls._instance
 
     def __init__(self):
-        if not hasattr(self, '_initialized'):
-            self._system_info: Optional[SystemInfo] = None
+        if not hasattr(self, "_initialized"):
+            self._system_info: SystemInfo | None = None
             self._stun_servers = self._load_stun_servers()
             self._initialized = True
 
     def _load_stun_servers(self) -> list[str]:
         if getattr(sys, "frozen", False):
-            root = sys._MEIPASS
+            root = sys._MEIPASS # type: ignore
         else:
             root = os.path.dirname(os.path.dirname(__file__))
         stun_file = os.path.join(root, "stun_valid_hosts.txt")
         if os.path.exists(stun_file):
-            with open(stun_file, "r", encoding="utf-8") as f:
+            with open(stun_file, encoding="utf-8") as f:
                 return [line.strip() for line in f if line.strip() and not line.startswith("#")]
         return ["stun.l.google.com:19302"]
 
-    def _check_cgnat(self, external_ip: Optional[str], public_ip: Optional[str], nat_type: str) -> CGNATResult:
+    def _check_cgnat(
+        self, external_ip: str | None, public_ip: str | None, nat_type: str
+    ) -> CGNATResult:
         reasons = []
         score = 0.0
         max_score = 0.0
@@ -130,7 +132,7 @@ class EnvironmentManager:
         except Exception:
             return "127.0.0.1"
 
-    def _get_public_ip(self) -> Optional[str]:
+    def _get_public_ip(self) -> str | None:
         try:
             with httpx.Client(timeout=5.0) as client:
                 resp = client.get("https://api.my-ip.io/v2/ip.json")
@@ -138,34 +140,36 @@ class EnvironmentManager:
         except Exception:
             return None
 
-    def _check_network(self) -> Optional[NetworkInfo]:
+    def _check_network(self) -> NetworkInfo | None:
         source_ip = self._get_local_ip()
-        
+
         for stun_server in self._stun_servers:
             try:
                 if ":" not in stun_server:
                     continue
                 host, port = stun_server.rsplit(":", 1)
-                
+
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                     s.bind((source_ip, 0))
-                    
+
                     nat_type, result = stun.get_nat_type(
                         s=s,
                         source_ip=source_ip,
                         source_port=s.getsockname()[1],
                         stun_host=host,
-                        stun_port=int(port)
+                        stun_port=int(port),
                     )
 
-                    ext_ip = result.get('external_ip') or result.get('ExternalIP')
-                    ext_port = result.get('external_port') or result.get('ExternalPort')
-                    
+                    ext_ip = result.get("external_ip") or result.get("ExternalIP")
+                    ext_port = result.get("external_port") or result.get("ExternalPort")
+
                     if isinstance(ext_ip, tuple):
                         ext_ip, ext_port = ext_ip[0], ext_ip[1]
 
-                    cgnat = self._check_cgnat(ext_ip, self._system_info.public_ip if self._system_info else None, nat_type)
+                    cgnat = self._check_cgnat(
+                        ext_ip, self._system_info.public_ip if self._system_info else None, nat_type
+                    )
 
                     return NetworkInfo(
                         nat_type=nat_type,
@@ -173,7 +177,7 @@ class EnvironmentManager:
                         mapped_port=ext_port,
                         external_ip=ext_ip,
                         cgnat=cgnat,
-                        stun_server=stun_server
+                        stun_server=stun_server,
                     )
             except Exception:
                 continue
@@ -185,7 +189,7 @@ class EnvironmentManager:
             system_version=platform.version(),
             arch=platform.machine(),
             processor=platform.processor(),
-            ip_address=self._get_local_ip()
+            ip_address=self._get_local_ip(),
         )
 
         if include_public_ip:
@@ -196,7 +200,7 @@ class EnvironmentManager:
 
         return self._system_info
 
-    def get_system_info(self) -> Optional[SystemInfo]:
+    def get_system_info(self) -> SystemInfo | None:
         return self._system_info
 
     @staticmethod

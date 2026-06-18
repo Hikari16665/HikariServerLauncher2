@@ -1,9 +1,12 @@
+import contextlib
 import os
 import threading
 import time
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
+from typing import Optional
+
 import psutil
-from dataclasses import dataclass, asdict, field
-from typing import List, Optional, Callable
 
 
 def _get_dir_size(path: str) -> int:
@@ -12,10 +15,8 @@ def _get_dir_size(path: str) -> int:
     try:
         for dirpath, _, filenames in os.walk(path):
             for f in filenames:
-                try:
+                with contextlib.suppress(OSError):
                     total += os.path.getsize(os.path.join(dirpath, f))
-                except OSError:
-                    pass
     except OSError:
         pass
     return total
@@ -56,23 +57,19 @@ class SystemMonitor:
         self._initialized = True
         self._prev_net_io = psutil.net_io_counters()
         self._prev_net_time = time.time()
-        self._disk_history: List[DiskSnapshot] = []
+        self._disk_history: list[DiskSnapshot] = []
         self._history_lock = threading.Lock()
-        self._collector_thread: Optional[threading.Thread] = None
+        self._collector_thread: threading.Thread | None = None
 
-    def get_current_stats(self, server_paths: List[str] = None) -> dict:
+    def get_current_stats(self, server_paths: list[str] | None = None) -> dict:
         cpu = psutil.cpu_percent(interval=0.1)
         mem = psutil.virtual_memory()
         net = psutil.net_io_counters()
         now = time.time()
         elapsed = now - self._prev_net_time
         if elapsed > 0 and self._prev_net_io:
-            sent_kbps = (
-                (net.bytes_sent - self._prev_net_io.bytes_sent) / elapsed / 1024
-            )
-            recv_kbps = (
-                (net.bytes_recv - self._prev_net_io.bytes_recv) / elapsed / 1024
-            )
+            sent_kbps = (net.bytes_sent - self._prev_net_io.bytes_sent) / elapsed / 1024
+            recv_kbps = (net.bytes_recv - self._prev_net_io.bytes_recv) / elapsed / 1024
         else:
             sent_kbps = 0
             recv_kbps = 0
@@ -108,11 +105,11 @@ class SystemMonitor:
         )
         return asdict(stats)
 
-    def get_disk_history(self) -> List[dict]:
+    def get_disk_history(self) -> list[dict]:
         with self._history_lock:
             return [asdict(s) for s in self._disk_history]
 
-    def collect_disk_snapshot(self, server_paths: List[str], server_names: List[str] = None):
+    def collect_disk_snapshot(self, server_paths: list[str], server_names: list[str] | None = None):
         if server_names is None:
             server_names = [os.path.basename(p) for p in server_paths]
         server_usages = []
@@ -121,7 +118,14 @@ class SystemMonitor:
             try:
                 size_bytes = _get_dir_size(path)
                 size_gb = round(size_bytes / (1024**3), 2)
-                server_usages.append({"name": server_names[i] if i < len(server_names) else os.path.basename(path), "used_gb": size_gb})
+                server_usages.append(
+                    {
+                        "name": server_names[i]
+                        if i < len(server_names)
+                        else os.path.basename(path),
+                        "used_gb": size_gb,
+                    }
+                )
                 total_used += size_gb
             except Exception:
                 pass
@@ -137,7 +141,7 @@ class SystemMonitor:
             if len(self._disk_history) > 168:
                 self._disk_history = self._disk_history[-168:]
 
-    def start_collector(self, get_server_info_callback: Callable[[], List[tuple]]):
+    def start_collector(self, get_server_info_callback: Callable[[], list[tuple]]):
         """Start background disk usage collector.
 
         Args:
@@ -164,7 +168,5 @@ class SystemMonitor:
                 except Exception:
                     pass
 
-        self._collector_thread = threading.Thread(
-            target=_loop, daemon=True, name="disk-collector"
-        )
+        self._collector_thread = threading.Thread(target=_loop, daemon=True, name="disk-collector")
         self._collector_thread.start()

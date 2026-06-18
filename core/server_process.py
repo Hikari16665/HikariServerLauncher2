@@ -13,17 +13,19 @@ import sys
 import threading
 import time
 from collections import deque
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Optional
 
 from .logger import Logger
 from .workspace import Server, ServerType
 
 
-def _find_java_binary(java_version: str) -> Optional[str]:
+def _find_java_binary(java_version: str) -> str | None:
     """Find the java binary for the given version."""
     java_dir = os.path.join(
-        sys._MEIPASS if getattr(sys, "frozen", False) else os.path.dirname(os.path.dirname(__file__)),
-        "java"
+        sys._MEIPASS
+        if getattr(sys, "frozen", False)
+        else os.path.dirname(os.path.dirname(__file__)),
+        "java",
     )
     version_dir = os.path.join(java_dir, java_version)
     if not os.path.exists(version_dir):
@@ -46,7 +48,7 @@ def _find_java_binary(java_version: str) -> Optional[str]:
     return None
 
 
-def _build_forge_like_command(server: Server, java_binary: str, lib_path: str) -> List[str]:
+def _build_forge_like_command(server: Server, java_binary: str, lib_path: str) -> list[str]:
     """Build a run command for Forge or NeoForge using args-file launch pattern."""
     log = Logger()
 
@@ -55,11 +57,11 @@ def _build_forge_like_command(server: Server, java_binary: str, lib_path: str) -
     user_jvm_args = []
     filtered_out = []
     if os.path.exists(jvm_args_path):
-        with open(jvm_args_path, "r") as f:
+        with open(jvm_args_path) as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#"):
-                    if re.match(r'^-Xm[sx]\d', line):
+                    if re.match(r"^-Xm[sx]\d", line):
                         filtered_out.append(line)
                         continue
                     user_jvm_args.append(line)
@@ -72,9 +74,9 @@ def _build_forge_like_command(server: Server, java_binary: str, lib_path: str) -
     run_script = os.path.join(server.path, script_name)
 
     if os.path.exists(run_script):
-        with open(run_script, "r") as f:
+        with open(run_script) as f:
             content = f.read()
-        at_files = re.findall(r'@(\S+)', content)
+        at_files = re.findall(r"@(\S+)", content)
         lib_path_norm = lib_path.replace("/", os.sep)
         for at_path in at_files:
             candidate = os.path.join(server.path, at_path)
@@ -124,27 +126,36 @@ def _build_forge_like_command(server: Server, java_binary: str, lib_path: str) -
     return cmd
 
 
-def _build_run_command(server: Server) -> List[str]:
+def _build_run_command(server: Server) -> list[str]:
     """Build the java run command for a server."""
     java_binary = _find_java_binary(server.java_version)
     if not java_binary:
         # Fall back to system java
         java_binary = "java"
 
-    if server.server_type in (ServerType.VANILLA, ServerType.PAPER, ServerType.FABRIC, ServerType.APRIL):
+    if server.server_type in (
+        ServerType.VANILLA,
+        ServerType.PAPER,
+        ServerType.FABRIC,
+        ServerType.APRIL,
+    ):
         extra = []
         if server.extra_args:
             try:
                 extra = shlex.split(server.extra_args)
             except ValueError:
                 extra = [server.extra_args]
-        return [
-            java_binary,
-            f"-Xmx{server.max_memory}M",
-        ] + extra + [
-            "-jar",
-            "server.jar",
-        ]
+        return (
+            [
+                java_binary,
+                f"-Xmx{server.max_memory}M",
+            ]
+            + extra
+            + [
+                "-jar",
+                "server.jar",
+            ]
+        )
 
     elif server.server_type == ServerType.FORGE:
         return _build_forge_like_command(server, java_binary, "net/minecraftforge/forge")
@@ -172,17 +183,21 @@ def export_launch_script(server: Server, fmt: str = "batch") -> str:
     cmd_str = " ".join(command)
 
     if fmt == "batch":
-        return "\r\n".join([
-            "@echo off",
-            f'cd /d "{server.path}"',
-            cmd_str,
-        ])
+        return "\r\n".join(
+            [
+                "@echo off",
+                f'cd /d "{server.path}"',
+                cmd_str,
+            ]
+        )
     elif fmt == "shell":
-        return "\n".join([
-            "#!/bin/bash",
-            f'cd "{server.path}"',
-            cmd_str,
-        ])
+        return "\n".join(
+            [
+                "#!/bin/bash",
+                f'cd "{server.path}"',
+                cmd_str,
+            ]
+        )
     else:
         raise ValueError(f"Unsupported format: {fmt}. Use 'batch' or 'shell'.")
 
@@ -190,16 +205,16 @@ def export_launch_script(server: Server, fmt: str = "batch") -> str:
 class RunningServer:
     """Tracks a single running server process."""
 
-    def __init__(self, server_uuid: str, process: subprocess.Popen, command: List[str]):
+    def __init__(self, server_uuid: str, process: subprocess.Popen, command: list[str]):
         self.server_uuid = server_uuid
         self.process = process
         self.command = command
         self.started_at = time.time()
         self._history: deque = deque(maxlen=2000)
-        self._listeners: Set = set()
-        self._stdout_thread: Optional[threading.Thread] = None
+        self._listeners: set = set()
+        self._stdout_thread: threading.Thread | None = None
         self._stdin_queue: queue.Queue = queue.Queue()
-        self._stdin_thread: Optional[threading.Thread] = None
+        self._stdin_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._encoding = "utf-8"
 
@@ -211,7 +226,7 @@ class RunningServer:
         return self.process is not None and self.process.poll() is None
 
     @property
-    def pid(self) -> Optional[int]:
+    def pid(self) -> int | None:
         return self.process.pid if self.process else None
 
     @property
@@ -266,10 +281,10 @@ class ServerProcessManager:
 
     def __init__(self):
         if not hasattr(self, "_initialized"):
-            self._running: Dict[str, RunningServer] = {}
+            self._running: dict[str, RunningServer] = {}
             self._initialized = True
 
-    def get(self, server_uuid: str) -> Optional[RunningServer]:
+    def get(self, server_uuid: str) -> RunningServer | None:
         return self._running.get(server_uuid)
 
     def is_running(self, server_uuid: str) -> bool:
@@ -289,7 +304,10 @@ class ServerProcessManager:
 
         log = Logger()
         log.info(f"启动服务器 {server.name} ({server.uuid[:8]})")
-        log.info(f"Java 版本: {server.java_version}  二进制: {_find_java_binary(server.java_version) or '(system java)'}")
+        log.info(
+            f"Java 版本: {server.java_version}  "
+            f"二进制: {_find_java_binary(server.java_version) or '(system java)'}"
+        )
         log.info(f"工作目录: {server.path}")
         log.info(f"启动命令: {' '.join(command)}")
 
@@ -304,7 +322,10 @@ class ServerProcessManager:
             )
         except FileNotFoundError:
             log = Logger()
-            log.error(f"服务器 {server.uuid[:8]} 启动失败: Java binary 未找到 (version {server.java_version})")
+            log.error(
+                f"服务器 {server.uuid[:8]} 启动失败: "
+                f"Java binary 未找到 (version {server.java_version})"
+            )
             return False, f"Java binary not found for version {server.java_version}"
         except Exception as e:
             log = Logger()
@@ -429,7 +450,7 @@ class ServerProcessManager:
             rs.set_encoding(encoding)
             rs.broadcast_status(f"终端编码已切换为 {encoding}")
 
-    def get_status(self, server_uuid: str) -> Dict[str, Any]:
+    def get_status(self, server_uuid: str) -> dict[str, Any]:
         """Get server running status."""
         rs = self._running.get(server_uuid)
         if not rs or not rs.is_running:
@@ -442,7 +463,7 @@ class ServerProcessManager:
             "command": " ".join(rs.command),
         }
 
-    def get_history(self, server_uuid: str) -> List[str]:
+    def get_history(self, server_uuid: str) -> list[str]:
         """Get buffered stdout history for a server."""
         rs = self._running.get(server_uuid)
         if not rs:

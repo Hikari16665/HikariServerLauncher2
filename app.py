@@ -1,15 +1,22 @@
+import contextlib
 import io
 import json
+import logging
 import os
-
+import shutil
+import sys
+import threading
 import time
+import traceback
 
+import javaproperties
 import yaml
 from flask import Flask, g, jsonify, render_template_string, request, send_file
-from typing import Dict
-from flask_cors import CORS
+from flask import request as ws_request
+from flask_sock import Sock
 
 from core import (
+    SPCONFIGS,
     AuthManager,
     ConfigKey,
     ConfigManager,
@@ -19,14 +26,14 @@ from core import (
     Logger,
     ServerType,
     SourceManager,
-    SPCONFIGS,
     TaskManager,
     TaskStatus,
     WebFileDownloadAdapter,
     WorkspaceManager,
     create_server_flow,
 )
-from core.server_process import ServerProcessManager
+from core.backup import BACKUP_FILENAME_RE, BackupManager
+from core.monitor import SystemMonitor
 from core.server_file_manager import (
     create_file,
     create_folder,
@@ -38,11 +45,19 @@ from core.server_file_manager import (
     upload_file,
     write_file,
 )
+from core.server_process import ServerProcessManager, export_launch_script
 from core.tui import TUI
-from core.monitor import SystemMonitor
-
-import sys
-import logging
+from core.version_resolver import (
+    get_april_versions,
+    get_fabric_versions,
+    get_forge_versions,
+    get_java_versions,
+    get_neoforge_versions,
+    get_paper_builds,
+    get_paper_versions,
+    get_recommended_java_version,
+    get_vanilla_versions,
+)
 
 
 def _get_app_path(*parts: str) -> str:
@@ -62,12 +77,13 @@ logger = Logger()
 logger.banner()
 logger.info(f"版本: {VERSION}")
 
+
 # Global exception hook — log uncaught exceptions to file
 def _global_excepthook(exc_type, exc_value, exc_tb):
-    import traceback
     tb_str = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
     logger.critical(f"未捕获的异常:\n{tb_str}")
     sys.__excepthook__(exc_type, exc_value, exc_tb)
+
 
 sys.excepthook = _global_excepthook
 
@@ -197,15 +213,13 @@ def _tui_after(response):
     tui.update_state(
         workspace.get_all_servers(),
         tm.list_tasks(),
-        {uid: rs for uid, rs in spm._running.items()},
+        dict(spm._running),
     )
     return response
 
 
 # WebSocket support
 try:
-    from flask_sock import Sock
-
     sock = Sock(app)
     logger.info("WebSocket 支持已启用。")
 except ImportError:
@@ -267,7 +281,7 @@ def create_server():
     if not auth.require_auth(request):
         return jsonify({"success": False, "error": auth.get_auth_error(request)}), 401
 
-    data: Dict = request.get_json()
+    data: dict = request.get_json()
     if not data:
         return jsonify({"success": False, "error": "No data provided"}), 400
 
@@ -275,9 +289,7 @@ def create_server():
     try:
         server_type = ServerType.from_str(server_type_str)
     except ValueError:
-        return jsonify(
-            {"success": False, "error": f"Invalid server type: {server_type_str}"}
-        ), 400
+        return jsonify({"success": False, "error": f"Invalid server type: {server_type_str}"}), 400
 
     try:
         server = workspace.create_server(
@@ -285,14 +297,14 @@ def create_server():
             server_type=server_type,
             max_memory=data.get("max_memory", 1024),
             extra_args=data.get("extra_args", ""),
-            java_version=data.get("java_version", "21"),
+            java_version=data.get("java_version", "25"),
         )
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 400
 
     # Create task for async server setup (download jar, java, etc.)
     version = data.get("version", "")
-    java_version = data.get("java_version", "21")
+    java_version = data.get("java_version", "25")
 
     task = tm.create_composite_task(
         execute_fn=lambda t, sp: create_server_flow(
@@ -326,17 +338,11 @@ def delete_server(server_uuid):
     if not server:
         return jsonify({"error": "Server not found"}), 404
 
-    import shutil
-
-    try:
+    with contextlib.suppress(FileNotFoundError):
         shutil.rmtree(server.path)
-    except FileNotFoundError:
-        pass
 
     # Remove from collection
-    workspace._servers.servers = [
-        s for s in workspace._servers.servers if s.uuid != server_uuid
-    ]
+    workspace._servers.servers = [s for s in workspace._servers.servers if s.uuid != server_uuid]
 
     return jsonify({"success": True})
 
@@ -350,7 +356,7 @@ def update_server(server_uuid):
     if not server:
         return jsonify({"error": "Server not found"}), 404
 
-    data: Dict = request.get_json()
+    data: dict = request.get_json()
     if not data:
         return jsonify({"success": False, "error": "No data provided"}), 400
 
@@ -365,7 +371,7 @@ def update_server(server_uuid):
 
     # Persist to .hslmeta
     meta_file = os.path.join(server.path, ".hslmeta")
-    with open(meta_file, "r", encoding="utf-8") as f:
+    with open(meta_file, encoding="utf-8") as f:
         meta = yaml.safe_load(f) or {}
     meta["name"] = server.name
     meta["max_memory"] = server.max_memory
@@ -393,9 +399,7 @@ def start_server(server_uuid):
     if not success:
         return jsonify({"success": False, "error": message}), 400
 
-    return jsonify(
-        {"success": True, "message": message, "status": spm.get_status(server_uuid)}
-    )
+    return jsonify({"success": True, "message": message, "status": spm.get_status(server_uuid)})
 
 
 @app.route("/api/servers/<server_uuid>/stop", methods=["POST"])
@@ -640,7 +644,6 @@ def get_vanilla_versions_endpoint():
     if not auth.require_auth(request):
         return jsonify({"error": auth.get_auth_error(request)}), 401
     use_mirror = request.args.get("use_mirror", "false").lower() == "true"
-    from core.version_resolver import get_vanilla_versions
 
     try:
         result = get_vanilla_versions(use_mirror=use_mirror)
@@ -654,7 +657,6 @@ def get_paper_versions_endpoint():
     if not auth.require_auth(request):
         return jsonify({"error": auth.get_auth_error(request)}), 401
     mc_version = request.args.get("mc_version", default=None)
-    from core.version_resolver import get_paper_versions
 
     try:
         result = get_paper_versions(mc_version=mc_version)
@@ -668,7 +670,6 @@ def get_paper_builds_endpoint():
     if not auth.require_auth(request):
         return jsonify({"error": auth.get_auth_error(request)}), 401
     sub_version = request.args.get("version", default="")
-    from core.version_resolver import get_paper_builds
 
     try:
         result = get_paper_builds(sub_version)
@@ -681,7 +682,6 @@ def get_paper_builds_endpoint():
 def get_april_versions_endpoint():
     if not auth.require_auth(request):
         return jsonify({"error": auth.get_auth_error(request)}), 401
-    from core.version_resolver import get_april_versions
 
     try:
         result = get_april_versions()
@@ -696,7 +696,6 @@ def get_forge_versions_endpoint():
         return jsonify({"error": auth.get_auth_error(request)}), 401
     use_mirror = request.args.get("use_mirror", "false").lower() == "true"
     mc_version = request.args.get("mc_version", default=None)
-    from core.version_resolver import get_forge_versions
 
     try:
         result = get_forge_versions(mc_version=mc_version, use_mirror=use_mirror)
@@ -711,7 +710,6 @@ def get_neoforge_versions_endpoint():
         return jsonify({"error": auth.get_auth_error(request)}), 401
     use_mirror = request.args.get("use_mirror", "false").lower() == "true"
     mc_version = request.args.get("mc_version", default=None)
-    from core.version_resolver import get_neoforge_versions
 
     try:
         result = get_neoforge_versions(mc_version=mc_version, use_mirror=use_mirror)
@@ -725,7 +723,6 @@ def get_fabric_versions_endpoint():
     if not auth.require_auth(request):
         return jsonify({"error": auth.get_auth_error(request)}), 401
     use_mirror = request.args.get("use_mirror", "false").lower() == "true"
-    from core.version_resolver import get_fabric_versions
 
     try:
         result = get_fabric_versions(use_mirror=use_mirror)
@@ -736,7 +733,6 @@ def get_fabric_versions_endpoint():
 
 @app.route("/api/versions/recommended-java", methods=["GET"])
 def recommended_java_endpoint():
-    from core.version_resolver import get_recommended_java_version
 
     mc_version = request.args.get("mc_version", "")
     if not mc_version:
@@ -750,7 +746,6 @@ def get_java_versions_endpoint():
     if not auth.require_auth(request):
         return jsonify({"error": auth.get_auth_error(request)}), 401
     use_mirror = request.args.get("use_mirror", "false").lower() == "true"
-    from core.version_resolver import get_java_versions
 
     try:
         result = get_java_versions(use_mirror=use_mirror)
@@ -763,7 +758,7 @@ def get_java_versions_endpoint():
 
 
 @app.route("/api/servers/<server_uuid>/backups", methods=["POST"])
-def create_backup(server_uuid):
+def create_backup(server_uuid: str):
     if not auth.require_auth(request):
         return jsonify({"error": auth.get_auth_error(request)}), 401
 
@@ -771,17 +766,13 @@ def create_backup(server_uuid):
     if not server:
         return jsonify({"error": "Server not found"}), 404
 
-    from core.backup import BackupManager
-
     bm = BackupManager()
     task = tm.create_composite_task(
         execute_fn=lambda t, sp: bm.create_backup_sync(server.path, server_uuid, task=t)
     )
     tm.run_task_background(task.task_id)
 
-    return jsonify(
-        {"success": True, "task_id": task.task_id, "server_uuid": server_uuid}
-    )
+    return jsonify({"success": True, "task_id": task.task_id, "server_uuid": server_uuid})
 
 
 @app.route("/api/servers/<server_uuid>/backups", methods=["GET"])
@@ -792,8 +783,6 @@ def list_backups(server_uuid):
     server = workspace.get_server_by_uuid(server_uuid)
     if not server:
         return jsonify({"error": "Server not found"}), 404
-
-    from core.backup import BackupManager
 
     backups = BackupManager().list_backups(server_uuid)
     return jsonify({"backups": backups, "server_uuid": server_uuid})
@@ -807,8 +796,6 @@ def restore_backup(server_uuid, filename):
     server = workspace.get_server_by_uuid(server_uuid)
     if not server:
         return jsonify({"error": "Server not found"}), 404
-
-    from core.backup import BACKUP_FILENAME_RE, BackupManager
 
     if not BACKUP_FILENAME_RE.match(filename) or ".." in filename:
         return jsonify({"error": "Invalid backup filename"}), 400
@@ -845,8 +832,6 @@ def delete_backup(server_uuid, filename):
     if not server:
         return jsonify({"error": "Server not found"}), 404
 
-    from core.backup import BACKUP_FILENAME_RE, BackupManager
-
     if not BACKUP_FILENAME_RE.match(filename) or ".." in filename:
         return jsonify({"error": "Invalid backup filename"}), 400
 
@@ -871,11 +856,7 @@ def export_launch_script_endpoint(server_uuid):
 
     fmt = request.args.get("format", "batch").lower()
     if fmt not in ("batch", "shell"):
-        return jsonify(
-            {"error": f"Unsupported format: {fmt}. Use 'batch' or 'shell'."}
-        ), 400
-
-    from core.server_process import export_launch_script
+        return jsonify({"error": f"Unsupported format: {fmt}. Use 'batch' or 'shell'."}), 400
 
     try:
         script = export_launch_script(server, fmt=fmt)
@@ -899,7 +880,7 @@ def _get_nested_value(config: dict, keys: list):
         if config is None:
             return None
         if isinstance(config, dict):
-            config = config.get(key)
+            config = config.get(key, {})
         else:
             return None
 
@@ -930,10 +911,8 @@ def get_server_spconfigs(server_uuid):
             continue
 
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 if cfg_def["type"] == "properties":
-                    import javaproperties
-
                     config_data = javaproperties.load(f)
                 elif cfg_def["type"] == "yml":
                     config_data = yaml.safe_load(f) or {}
@@ -982,7 +961,7 @@ def update_server_spconfig(server_uuid, config_path):
     if not server:
         return jsonify({"error": "Server not found"}), 404
 
-    data: Dict = request.get_json()
+    data: dict = request.get_json()
     if not data:
         return jsonify({"success": False, "error": "No data provided"}), 400
 
@@ -1002,15 +981,11 @@ def update_server_spconfig(server_uuid, config_path):
             break
 
     if not cfg_def:
-        return jsonify(
-            {"success": False, "error": f"Config '{config_path}' not found"}
-        ), 404
+        return jsonify({"success": False, "error": f"Config '{config_path}' not found"}), 404
 
     file_path = os.path.join(server.path, *config_path.split("/"))
     if not os.path.exists(file_path):
-        return jsonify(
-            {"success": False, "error": f"Config file not found: {config_path}"}
-        ), 404
+        return jsonify({"success": False, "error": f"Config file not found: {config_path}"}), 404
 
     # Find key definition to validate type
     key_def = None
@@ -1020,9 +995,7 @@ def update_server_spconfig(server_uuid, config_path):
             break
 
     if not key_def:
-        return jsonify(
-            {"success": False, "error": f"Key '{key}' not found in config"}
-        ), 404
+        return jsonify({"success": False, "error": f"Key '{key}' not found in config"}), 404
 
     # Type validation
     try:
@@ -1032,19 +1005,14 @@ def update_server_spconfig(server_uuid, config_path):
             if cfg_def["type"] == "properties":
                 value = "true" if value in (True, "true", "True") else "false"
             else:
-                value = (
-                    bool(value)
-                    if isinstance(value, bool)
-                    else value in ("true", "True", True)
-                )
-        elif key_def["type"] == "choice":
-            if value not in (key_def.get("choices") or []):
-                return jsonify(
-                    {
-                        "success": False,
-                        "error": f"Invalid choice '{value}'. Valid: {key_def['choices']}",
-                    }
-                ), 400
+                value = bool(value) if isinstance(value, bool) else value in ("true", "True", True)
+        elif key_def["type"] == "choice" and value not in (key_def.get("choices") or []):
+            return jsonify(
+                {
+                    "success": False,
+                    "error": f"Invalid choice '{value}'. Valid: {key_def['choices']}",
+                }
+            ), 400
     except (ValueError, TypeError):
         return jsonify(
             {
@@ -1054,10 +1022,8 @@ def update_server_spconfig(server_uuid, config_path):
         ), 400
 
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             if cfg_def["type"] == "properties":
-                import javaproperties
-
                 config_data = javaproperties.load(f)
             else:
                 config_data = yaml.safe_load(f) or {}
@@ -1066,8 +1032,6 @@ def update_server_spconfig(server_uuid, config_path):
 
         with open(file_path, "w", encoding="utf-8") as f:
             if cfg_def["type"] == "properties":
-                import javaproperties
-
                 javaproperties.dump(config_data, f)
             else:
                 yaml.dump(config_data, f, allow_unicode=True, default_flow_style=False)
@@ -1125,7 +1089,6 @@ if sock is not None:
     @sock.route("/api/servers/<server_uuid>/terminal")
     def server_terminal(ws, server_uuid):
         # Authenticate via query parameter
-        from flask import request as ws_request
 
         token = ws_request.args.get("token", "")
         if token:
@@ -1180,18 +1143,27 @@ if sock is not None:
                     try:
                         data = json.loads(message)
                         if data.get("type") == "command" and data.get("command"):
-                            success, msg = spm.send_command(
-                                server_uuid, data["command"]
-                            )
+                            success, msg = spm.send_command(server_uuid, data["command"])
                             if not success:
                                 ws.send(json.dumps({"type": "error", "message": msg}))
                         elif data.get("type") == "set_encoding" and data.get("encoding"):
                             new_enc = data["encoding"]
                             if new_enc in ("utf-8", "gbk", "gb2312", "gb18030", "latin-1"):
                                 spm.set_encoding(server_uuid, new_enc)
-                                ws.send(json.dumps({"type": "status", "message": f"Encoding set to {new_enc}"}))
+                                ws.send(
+                                    json.dumps(
+                                        {"type": "status", "message": f"Encoding set to {new_enc}"}
+                                    )
+                                )
                             else:
-                                ws.send(json.dumps({"type": "error", "message": f"Unsupported encoding: {new_enc}"}))
+                                ws.send(
+                                    json.dumps(
+                                        {
+                                            "type": "error",
+                                            "message": f"Unsupported encoding: {new_enc}",
+                                        }
+                                    )
+                                )
                     except json.JSONDecodeError:
                         pass
         except Exception:
@@ -1224,7 +1196,7 @@ def system_disk_history():
 def system_license():
     license_path = _get_app_path("LICENSE")
     try:
-        with open(license_path, "r", encoding="utf-8") as f:
+        with open(license_path, encoding="utf-8") as f:
             text = f.read()
         return jsonify({"text": text})
     except Exception as e:
@@ -1236,9 +1208,7 @@ def system_license():
 
 @app.route("/")
 def index():
-    return render_template_string(
-        open(_get_app_path("index.html"), "r", encoding="utf-8").read()
-    )
+    return render_template_string(open(_get_app_path("index.html"), encoding="utf-8").read())
 
 
 @app.route("/api/ping")
@@ -1257,8 +1227,6 @@ def _extract_bearer_token():
 
 
 if __name__ == "__main__":
-    import threading
-
     # Run Flask in a daemon thread so the TUI owns the terminal
     flask_thread = threading.Thread(
         target=app.run,

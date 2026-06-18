@@ -2,8 +2,8 @@
 
 import time
 from collections import deque
-from dataclasses import dataclass, field
-from typing import Deque, List, Optional
+from dataclasses import dataclass
+from typing import Optional
 
 from rich import box
 from rich.console import Console
@@ -38,13 +38,13 @@ class TUI:
             return
         self._initialized = True
 
-        self.api_log: Deque[LogEntry] = deque(maxlen=MAX_LOG_ENTRIES)
+        self.api_log: deque[LogEntry] = deque(maxlen=MAX_LOG_ENTRIES)
         self._servers: list = []
         self._tasks: list = []
         self._processes: dict = {}
         self._host: str = "127.0.0.1"
         self._port: int = 5000
-        self._live: Optional[Live] = None
+        self._live: Live | None = None
         self._running: bool = False
 
     # ── public API called by app.py ──────────────────────────────
@@ -77,9 +77,7 @@ class TUI:
         import threading
 
         def _run():
-            with Live(
-                self._render(), console=Console(), refresh_per_second=4, screen=True
-            ) as live:
+            with Live(self._render(), console=Console(), refresh_per_second=4, screen=True) as live:
                 self._live = live
                 while self._running:
                     time.sleep(0.25)
@@ -117,7 +115,7 @@ class TUI:
         log = Logger()
         text = Text()
         text.append("Hikari Server Launcher", style="bold cyan")
-        text.append(f"  v2.0.0\n", style="dim")
+        text.append("  v2.0.0\n", style="dim")
         text.append(
             f"http://{self._host}:{self._port}",
             style="underline white",
@@ -142,9 +140,7 @@ class TUI:
         return Panel(text, box=box.ROUNDED)
 
     def _render_servers(self) -> Panel:
-        tbl = Table(
-            title="Servers", box=box.SIMPLE, show_header=True, header_style="bold"
-        )
+        tbl = Table(title="Servers", box=box.SIMPLE, show_header=True, header_style="bold")
         tbl.add_column("Name")
         tbl.add_column("Type", style="dim")
         tbl.add_column("State")
@@ -167,9 +163,7 @@ class TUI:
         return Panel(tbl, box=box.ROUNDED)
 
     def _render_tasks(self) -> Panel:
-        tbl = Table(
-            title="Tasks", box=box.SIMPLE, show_header=True, header_style="bold"
-        )
+        tbl = Table(title="Tasks", box=box.SIMPLE, show_header=True, header_style="bold")
         tbl.add_column("ID", style="dim")
         tbl.add_column("State")
         tbl.add_column("Progress")

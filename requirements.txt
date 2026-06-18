@@ -3,7 +3,7 @@ httpx
 regex
 psutil
 pyyaml
-nuitka
+pyinstaller
 pydantic==1.10.18
 flask[async]
 docker
@@ -11,3 +11,4 @@ pystun3
 flask-sock
 javaproperties
 flask-cors
+ruff

@@ -1,9 +1,10 @@
 import os
 import shutil
 import sys
-import yaml
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Optional
+
+import yaml
 
 
 def get_root_path() -> str:
@@ -33,9 +34,14 @@ class ConfigKey(Enum):
 
 
 class ConfigManager:
-    _instance: Optional['ConfigManager'] = None
-    _cache: Dict[str, Any] = {}
-    _config_path: str = os.path.join(os.getcwd() if getattr(sys, "frozen", False) else os.path.dirname(os.path.dirname(__file__)), "config.yml")
+    _instance: Optional["ConfigManager"] = None
+    _cache: dict[str, Any] = {}
+    _config_path: str = os.path.join(
+        os.getcwd()
+        if getattr(sys, "frozen", False)
+        else os.path.dirname(os.path.dirname(__file__)),
+        "config.yml",
+    )
     _default_config_path: str = os.path.join(get_root_path(), "install", "default_config.yml")
 
     def __new__(cls):
@@ -44,7 +50,7 @@ class ConfigManager:
         return cls._instance
 
     def __init__(self):
-        if not hasattr(self, '_initialized'):
+        if not hasattr(self, "_initialized"):
             self._ensure_config_exists()
             self._load_config()
             self._initialized = True
@@ -57,11 +63,11 @@ class ConfigManager:
                 raise FileNotFoundError(f"Default config not found at {self._default_config_path}")
 
     def _load_config(self):
-        with open(self._config_path, 'r', encoding='utf-8') as f:
+        with open(self._config_path, encoding="utf-8") as f:
             self._cache = yaml.safe_load(f) or {}
 
-    def _get_nested(self, data: Dict[str, Any], key: str) -> Any:
-        keys = key.split('.')
+    def _get_nested(self, data: dict[str, Any], key: str) -> Any:
+        keys = key.split(".")
         value = data
         for k in keys:
             if isinstance(value, dict) and k in value:
@@ -70,8 +76,8 @@ class ConfigManager:
                 return None
         return value
 
-    def _set_nested(self, data: Dict[str, Any], key: str, value: Any):
-        keys = key.split('.')
+    def _set_nested(self, data: dict[str, Any], key: str, value: Any):
+        keys = key.split(".")
         current = data
         for k in keys[:-1]:
             if k not in current:
@@ -83,7 +89,7 @@ class ConfigManager:
         if use_cache:
             return self._get_nested(self._cache, key)
         else:
-            with open(self._config_path, 'r', encoding='utf-8') as f:
+            with open(self._config_path, encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
                 return self._get_nested(data, key)
 
@@ -99,7 +105,7 @@ class ConfigManager:
         self.set(key, value, save_immediately=True)
 
     def save(self):
-        with open(self._config_path, 'w', encoding='utf-8') as f:
+        with open(self._config_path, "w", encoding="utf-8") as f:
             yaml.dump(self._cache, f, allow_unicode=True, default_flow_style=False)
 
     def reload(self):

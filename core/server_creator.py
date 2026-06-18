@@ -1,13 +1,12 @@
 import os
 import platform
 import sys
-from typing import Optional
 
 import httpx
 
-from . import ConfigKey
-from . import SourceManager
-from . import ServerType, WorkspaceManager
+from .config import ConfigKey
+from .source import SourceManager
+from .workspace import ServerType, WorkspaceManager
 
 
 def create_server_flow(
@@ -37,8 +36,10 @@ def create_server_flow(
     task.set_progress(5, f"Checking Java {java_version}...")
 
     java_dir = os.path.join(
-        sys._MEIPASS if getattr(sys, "frozen", False) else os.path.dirname(os.path.dirname(__file__)),
-        "java"
+        sys._MEIPASS  # type: ignore
+        if getattr(sys, "frozen", False)
+        else os.path.dirname(os.path.dirname(__file__)),
+        "java",
     )
     os.makedirs(java_dir, exist_ok=True)
 
@@ -58,9 +59,7 @@ def create_server_flow(
     needs_installer = server_type in (ServerType.FORGE, ServerType.NEOFORGE)
     if needs_installer:
         installer_name = (
-            "forge-installer.jar"
-            if server_type == ServerType.FORGE
-            else "neoforge-installer.jar"
+            "forge-installer.jar" if server_type == ServerType.FORGE else "neoforge-installer.jar"
         )
         installer_path = os.path.join(server.path, installer_name)
         server_jar_path = os.path.join(server.path, "server.jar")
@@ -93,7 +92,7 @@ def create_server_flow(
     if os.path.exists(meta_file):
         import yaml
 
-        with open(meta_file, "r", encoding="utf-8") as f:
+        with open(meta_file, encoding="utf-8") as f:
             meta = yaml.safe_load(f) or {}
         meta["java_binary"] = java_binary
 
@@ -126,7 +125,7 @@ def create_server_flow(
     }
 
 
-def _find_java_binary(version: str, java_dir: str) -> Optional[str]:
+def _find_java_binary(version: str, java_dir: str) -> str | None:
     version_dir = os.path.join(java_dir, version)
     if not os.path.exists(version_dir):
         return None
@@ -177,18 +176,20 @@ def _download_java(version: str, java_dir: str, source, task) -> str:
         tmp_fd, tmp_path = tempfile.mkstemp(suffix=".zip")
         os.close(tmp_fd)
 
-        with httpx.Client(timeout=httpx.Timeout(600.0, connect=60.0)) as client:
-            with client.stream("GET", download_url, follow_redirects=True) as response:
-                response.raise_for_status()
-                total = int(response.headers.get("content-length", 0))
-                downloaded = 0
-                with open(tmp_path, "wb") as f:
-                    for chunk in response.iter_bytes(chunk_size=65536):
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total:
-                            pct = 10 + (downloaded / total) * 30
-                            task.set_progress(pct, f"Downloading Java {version}...")
+        with (
+            httpx.Client(timeout=httpx.Timeout(600.0, connect=60.0)) as client,
+            client.stream("GET", download_url, follow_redirects=True) as response,
+        ):
+            response.raise_for_status()
+            total = int(response.headers.get("content-length", 0))
+            downloaded = 0
+            with open(tmp_path, "wb") as f:
+                for chunk in response.iter_bytes(chunk_size=65536):
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total:
+                        pct = 10 + (downloaded / total) * 30
+                        task.set_progress(pct, f"Downloading Java {version}...")
 
         task.set_progress(42, f"Extracting Java {version}...")
         with zipfile.ZipFile(tmp_path, "r") as zf:
@@ -196,9 +197,7 @@ def _download_java(version: str, java_dir: str, source, task) -> str:
 
         binary = _find_java_binary(version, java_dir)
         if not binary:
-            raise RuntimeError(
-                f"Java {version} downloaded but binary not found after extraction"
-            )
+            raise RuntimeError(f"Java {version} downloaded but binary not found after extraction")
 
         if platform.system() != "Windows":
             for root, dirs, files in os.walk(version_dir):
@@ -213,7 +212,7 @@ def _download_java(version: str, java_dir: str, source, task) -> str:
             os.remove(tmp_path)
 
 
-def _resolve_jar_url(server_type: ServerType, version: str, source) -> Optional[str]:
+def _resolve_jar_url(server_type: ServerType, version: str, source) -> str | None:
     if server_type == ServerType.VANILLA:
         return _resolve_vanilla_url(version, source)
     elif server_type == ServerType.PAPER:
@@ -229,13 +228,11 @@ def _resolve_jar_url(server_type: ServerType, version: str, source) -> Optional[
     return None
 
 
-def _resolve_vanilla_url(version: str, source) -> Optional[str]:
+def _resolve_vanilla_url(version: str, source) -> str | None:
     for vs in source.mc.vanilla.list:
         if vs.type == "bmclapi":
             try:
-                resp = httpx.get(
-                    vs.server.format(version=version), follow_redirects=True
-                )
+                resp = httpx.get(vs.server.format(version=version), follow_redirects=True)
                 if resp.status_code == 200:
                     return str(resp.url)
             except Exception:
@@ -243,7 +240,7 @@ def _resolve_vanilla_url(version: str, source) -> Optional[str]:
     return None
 
 
-def _resolve_paper_url(version: str, source) -> Optional[str]:
+def _resolve_paper_url(version: str, source) -> str | None:
     if version.startswith("https://"):
         return version
     # Fallback: try source.json static URL
@@ -253,7 +250,7 @@ def _resolve_paper_url(version: str, source) -> Optional[str]:
     return None
 
 
-def _resolve_fabric_url(version: str, source) -> Optional[str]:
+def _resolve_fabric_url(version: str, source) -> str | None:
     if not version:
         # get latest stable
         try:
@@ -285,13 +282,11 @@ def _resolve_fabric_url(version: str, source) -> Optional[str]:
 
     for fs in source.fabric.list:
         if fs.type == "official":
-            return fs.installer.replace("{version}", version).replace(
-                "{loader}", loader_version
-            )
+            return fs.installer.replace("{version}", version).replace("{loader}", loader_version)
     return None
 
 
-def _resolve_forge_installer_url(version: str, source) -> Optional[str]:
+def _resolve_forge_installer_url(version: str, source) -> str | None:
     if not version:
         return None
 
@@ -301,7 +296,7 @@ def _resolve_forge_installer_url(version: str, source) -> Optional[str]:
         # fg_ver_raw may already contain mc_version prefix like "1.21.4-52.0.27"
         # Strip the mc_ver prefix if present
         if fg_ver_raw.startswith(mc_ver + "-"):
-            fg_ver = fg_ver_raw[len(mc_ver) + 1:]
+            fg_ver = fg_ver_raw[len(mc_ver) + 1 :]
         else:
             fg_ver = fg_ver_raw
     else:
@@ -378,7 +373,7 @@ def _resolve_forge_installer_url(version: str, source) -> Optional[str]:
     return None
 
 
-def _resolve_neoforge_installer_url(version: str, source) -> Optional[str]:
+def _resolve_neoforge_installer_url(version: str, source) -> str | None:
     if not version:
         return None
 
@@ -395,7 +390,7 @@ def _resolve_neoforge_installer_url(version: str, source) -> Optional[str]:
     return None
 
 
-def _resolve_april_url(version: str, source) -> Optional[str]:
+def _resolve_april_url(version: str, source) -> str | None:
     for av in source.mc.april.list:
         if av.version == version or av.name == version:
             return av.link
@@ -406,15 +401,18 @@ def _resolve_april_url(version: str, source) -> Optional[str]:
 
 def _run_installer(
     java_binary: str,
-    installer_jar_name: str,
+    installer_jar_name: str | None,
     server_path: str,
     task,
 ) -> None:
     """Run a Forge/NeoForge installer subprocess, streaming stdout to task progress."""
     import subprocess
 
+    if installer_jar_name is None:
+        return
+
     cmd = [java_binary, "-jar", installer_jar_name, "--installServer"]
-    task.set_progress(60, f"Running installer...")
+    task.set_progress(60, "Running installer...")
 
     process = subprocess.Popen(
         cmd,
@@ -429,26 +427,25 @@ def _run_installer(
 
     success = False
     last_progress = 60.0
-    for line in iter(process.stdout.readline, ""):
-        line = line.strip()
-        if not line:
-            continue
-        last_progress = min(last_progress + 0.3, 85)
-        task.set_progress(last_progress, f"Installer: {line[:80]}")
-        if "The server installed successfully" in line:
-            success = True
+    if process.stdout is not None:
+        for line in iter(process.stdout.readline, ""):
+            line = line.strip()
+            if not line:
+                continue
+            last_progress = min(last_progress + 0.3, 85)
+            task.set_progress(last_progress, f"Installer: {line[:80]}")
+            if "The server installed successfully" in line:
+                success = True
 
     try:
         process.wait(timeout=30)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
         process.kill()
         process.wait()
-        raise RuntimeError("Installer timed out")
+        raise RuntimeError("Installer timed out") from e
 
     if not success:
-        raise RuntimeError(
-            f"Installer failed (exit code: {process.returncode})"
-        )
+        raise RuntimeError(f"Installer failed (exit code: {process.returncode})")
 
     task.set_progress(85, "Installer completed successfully")
 
@@ -462,17 +459,19 @@ def _download_file(
 ):
     os.makedirs(os.path.dirname(destination) or ".", exist_ok=True)
 
-    with httpx.Client(timeout=httpx.Timeout(300.0, connect=60.0)) as client:
-        with client.stream("GET", url, follow_redirects=True) as response:
-            response.raise_for_status()
-            total = int(response.headers.get("content-length", 0))
-            downloaded = 0
-            with open(destination, "wb") as f:
-                for chunk in response.iter_bytes(chunk_size=65536):
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if total:
-                        pct = start + (downloaded / total) * (end - start)
-                        task.set_progress(pct, "Downloading server.jar...")
+    with (
+        httpx.Client(timeout=httpx.Timeout(300.0, connect=60.0)) as client,
+        client.stream("GET", url, follow_redirects=True) as response,
+    ):
+        response.raise_for_status()
+        total = int(response.headers.get("content-length", 0))
+        downloaded = 0
+        with open(destination, "wb") as f:
+            for chunk in response.iter_bytes(chunk_size=65536):
+                f.write(chunk)
+                downloaded += len(chunk)
+                if total:
+                    pct = start + (downloaded / total) * (end - start)
+                    task.set_progress(pct, "Downloading server.jar...")
 
     return destination

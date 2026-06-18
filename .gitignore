@@ -14,6 +14,7 @@ dist/
 HSL2-Release.zip
 HSL2-Release-*.tar.gz
 *.AppImage
+installer/
 
 # Runtime data (contains admin keys, server instances, logs)
 config.yml

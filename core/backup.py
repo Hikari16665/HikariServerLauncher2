@@ -11,13 +11,11 @@ import re
 import sys
 import zipfile
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from .config import ConfigKey
 
-BACKUP_FILENAME_RE = re.compile(
-    r"^[0-9a-fA-F-]+_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.zip$"
-)
+BACKUP_FILENAME_RE = re.compile(r"^[0-9a-fA-F-]+_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.zip$")
 
 
 class BackupManager:
@@ -34,7 +32,11 @@ class BackupManager:
 
     def _get_backup_dir(self) -> str:
         relative = ConfigKey.BACKUP_DIR.get()
-        base = sys._MEIPASS if getattr(sys, "frozen", False) else os.path.dirname(os.path.dirname(__file__))
+        base = (
+            sys._MEIPASS
+            if getattr(sys, "frozen", False)
+            else os.path.dirname(os.path.dirname(__file__))
+        )
         return os.path.join(base, relative)
 
     def _ensure_backup_dir(self) -> str:
@@ -42,9 +44,7 @@ class BackupManager:
         os.makedirs(d, exist_ok=True)
         return d
 
-    def create_backup_sync(
-        self, server_path: str, server_uuid: str, task=None
-    ) -> str:
+    def create_backup_sync(self, server_path: str, server_uuid: str, task=None) -> str:
         """Create a zip backup of a server directory. Returns the filename."""
         backup_dir = self._ensure_backup_dir()
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -55,9 +55,7 @@ class BackupManager:
         for root, _dirs, files in os.walk(server_path):
             for fn in files:
                 file_path = os.path.join(root, fn)
-                arcname = os.path.relpath(file_path, start=server_path).replace(
-                    "\\", "/"
-                )
+                arcname = os.path.relpath(file_path, start=server_path).replace("\\", "/")
                 all_files.append((file_path, arcname))
 
         total = len(all_files) or 1
@@ -75,7 +73,7 @@ class BackupManager:
             task.set_progress(100, f"Backup created: {filename}")
         return filename
 
-    def list_backups(self, server_uuid: str) -> List[Dict[str, Any]]:
+    def list_backups(self, server_uuid: str) -> list[dict[str, Any]]:
         """List backups for a server UUID."""
         backup_dir = self._get_backup_dir()
         if not os.path.exists(backup_dir):
@@ -92,17 +90,13 @@ class BackupManager:
                         "filename": entry,
                         "server_uuid": server_uuid,
                         "size": stat.st_size,
-                        "created": datetime.fromtimestamp(
-                            stat.st_mtime
-                        ).isoformat(),
+                        "created": datetime.fromtimestamp(stat.st_mtime).isoformat(),
                     }
                 )
         results.sort(key=lambda b: b["created"], reverse=True)
         return results
 
-    def restore_backup_sync(
-        self, server_path: str, backup_filename: str, task=None
-    ) -> bool:
+    def restore_backup_sync(self, server_path: str, backup_filename: str, task=None) -> bool:
         """Restore a backup to the server directory.
 
         Deletes the existing server directory contents first.
@@ -112,9 +106,7 @@ class BackupManager:
         backup_dir = self._get_backup_dir()
         full_path = os.path.join(backup_dir, backup_filename)
         if not os.path.exists(full_path):
-            raise FileNotFoundError(
-                f"Backup file not found: {backup_filename}"
-            )
+            raise FileNotFoundError(f"Backup file not found: {backup_filename}")
 
         if task:
             task.set_progress(5, "Removing existing server files...")

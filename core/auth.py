@@ -1,6 +1,7 @@
 import secrets
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
+
 from flask import Request
 
 from .config import ConfigKey, ConfigManager
@@ -9,15 +10,12 @@ from .logger import Logger
 
 class TokenManager:
     def __init__(self):
-        self._tokens: Dict[str, Dict[str, Any]] = {}
+        self._tokens: dict[str, dict[str, Any]] = {}
 
     def generate_token(self) -> str:
         token = secrets.token_urlsafe(32)
         expiry = time.time() + (12 * 60 * 60)
-        self._tokens[token] = {
-            "expiry": expiry,
-            "created_at": time.time()
-        }
+        self._tokens[token] = {"expiry": expiry, "created_at": time.time()}
         return token
 
     def validate_token(self, token: str) -> bool:
@@ -42,7 +40,7 @@ class TokenManager:
 
 
 class AuthManager:
-    _instance: Optional['AuthManager'] = None
+    _instance: Optional["AuthManager"] = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -50,7 +48,7 @@ class AuthManager:
         return cls._instance
 
     def __init__(self):
-        if not hasattr(self, '_initialized'):
+        if not hasattr(self, "_initialized"):
             self._token_manager = TokenManager()
             self._check_and_generate_admin_key()
             self._initialized = True
@@ -66,7 +64,7 @@ class AuthManager:
     def _generate_admin_key(self) -> str:
         return secrets.token_urlsafe(32)
 
-    def authenticate(self, request: Request) -> Tuple[bool, Optional[str], Optional[str]]:
+    def authenticate(self, request: Request) -> tuple[bool, str | None, str | None]:
         if not ConfigKey.AUTH_ENABLED.get():
             return True, None, None
 
@@ -87,7 +85,7 @@ class AuthManager:
             return True
         return self._token_manager.validate_token(token)
 
-    def validate_request(self, request: Request) -> Tuple[bool, Optional[str]]:
+    def validate_request(self, request: Request) -> tuple[bool, str | None]:
         if not ConfigKey.AUTH_ENABLED.get():
             return True, None
 
@@ -109,31 +107,31 @@ class AuthManager:
 
         return True, None
 
-    def _extract_key_from_request(self, request: Request) -> Optional[str]:
+    def _extract_key_from_request(self, request: Request) -> str | None:
         if request.is_json and request.json:
             body = request.json
             if isinstance(body, dict):
-                return body.get('auth_key') or body.get('admin_key')
+                return body.get("auth_key") or body.get("admin_key")
 
         if request.form:
-            return request.form.get('auth_key') or request.form.get('admin_key')
+            return request.form.get("auth_key") or request.form.get("admin_key")
 
         return None
 
-    def _extract_token_from_request(self, request: Request) -> Optional[str]:
+    def _extract_token_from_request(self, request: Request) -> str | None:
         if request.is_json and request.json:
             body = request.json
             if isinstance(body, dict):
-                token = body.get('token')
+                token = body.get("token")
                 if token:
                     return token
 
-        auth_header = request.headers.get('Authorization')
-        if auth_header and auth_header.startswith('Bearer '):
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
             return auth_header[7:]
 
         if request.args:
-            return request.args.get('token')
+            return request.args.get("token")
 
         return None
 
@@ -141,7 +139,7 @@ class AuthManager:
         valid, error = self.validate_request(request)
         return valid
 
-    def get_auth_error(self, request: Request) -> Optional[str]:
+    def get_auth_error(self, request: Request) -> str | None:
         valid, error = self.validate_request(request)
         return error
 

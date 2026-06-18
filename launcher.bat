@@ -6,7 +6,7 @@ echo.
 
 :: Start backend
 echo [1/2] Starting backend server...
-start "HSL Server" /D "%~dp0" "%~dp0\hsl-server\hsl-server.exe"
+start "HSL Server" /D "%~dp0" "%~dp0hsl-server\hsl-server.exe"
 
 :: Wait for backend to become ready
 echo Waiting for backend to become ready...

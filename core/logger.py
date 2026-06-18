@@ -1,13 +1,14 @@
+import logging
 import os
 import sys
 from enum import Enum
+
 from rich.console import Console
-from rich.theme import Theme
 from rich.logging import RichHandler
-from rich.table import Table
 from rich.panel import Panel
 from rich.syntax import Syntax
-import logging
+from rich.table import Table
+from rich.theme import Theme
 
 BANNER = r"""
     __  ___ __              _   _____
@@ -22,15 +23,17 @@ BANNER = r"""
 """
 
 
-custom_theme = Theme({
-    "info": "cyan",
-    "warning": "yellow",
-    "error": "bold red",
-    "success": "bold green",
-    "critical": "bold white on red",
-    "debug": "dim",
-    "key": "bold magenta",
-})
+custom_theme = Theme(
+    {
+        "info": "cyan",
+        "warning": "yellow",
+        "error": "bold red",
+        "success": "bold green",
+        "critical": "bold white on red",
+        "debug": "dim",
+        "key": "bold magenta",
+    }
+)
 
 
 class LogLevel(Enum):
@@ -43,9 +46,7 @@ class LogLevel(Enum):
 
 class Logger:
     _instance = None
-    _console = None
     _rich_handler = None
-    _python_logger = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -53,7 +54,7 @@ class Logger:
         return cls._instance
 
     def __init__(self):
-        if not hasattr(self, '_initialized'):
+        if not hasattr(self, "_initialized"):
             self._console = Console(theme=custom_theme, stderr=True)
             self._error_count = 0
             self._warning_count = 0
@@ -86,23 +87,23 @@ class Logger:
 
         # File handler — all logs
         log_dir = self._get_log_dir()
-        all_handler = logging.FileHandler(
-            os.path.join(log_dir, "hsl.log"), encoding="utf-8"
-        )
+        all_handler = logging.FileHandler(os.path.join(log_dir, "hsl.log"), encoding="utf-8")
         all_handler.setLevel(logging.DEBUG)
-        all_handler.setFormatter(logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-        ))
+        all_handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+            )
+        )
         self._python_logger.addHandler(all_handler)
 
         # File handler — errors and warnings only
-        err_handler = logging.FileHandler(
-            os.path.join(log_dir, "hsl-error.log"), encoding="utf-8"
-        )
+        err_handler = logging.FileHandler(os.path.join(log_dir, "hsl-error.log"), encoding="utf-8")
         err_handler.setLevel(logging.WARNING)
-        err_handler.setFormatter(logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-        ))
+        err_handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+            )
+        )
         self._python_logger.addHandler(err_handler)
 
     @property
@@ -146,7 +147,7 @@ class Logger:
             f"[key]{key}[/key]",
             title="[bold yellow]⚠ Security Notice[/bold yellow]",
             border_style="yellow",
-            padding=(1, 2)
+            padding=(1, 2),
         )
         self._console.print(panel)
         self._console.print(
@@ -161,11 +162,11 @@ class Logger:
             table.add_row(*[str(cell) for cell in row])
         self._console.print(table)
 
-    def print_panel(self, content: str, title: str = None, style: str = "cyan"):
+    def print_panel(self, content: str, title: str = "", style: str = "cyan"):
         panel = Panel(content, title=title, border_style=style, padding=(1, 2))
         self._console.print(panel)
 
-    def print_syntax(self, code: str, language: str = "python", title: str = None):
+    def print_syntax(self, code: str, language: str = "python", title: str = ""):
         syntax = Syntax(code, language, theme="monokai", line_numbers=True)
         if title:
             self._console.print(f"\n[bold]{title}[/bold]")

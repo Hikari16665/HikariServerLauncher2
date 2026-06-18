@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -9,7 +9,7 @@ class SpConfigKey(BaseModel):
     description: str
     tips: str = ""
     type: Literal["int", "str", "bool", "choice"]
-    choices: Optional[List[str]] = None
+    choices: list[str] | None = None
     danger: bool = False
 
 
@@ -18,10 +18,10 @@ class SpConfig(BaseModel):
     path: str
     description: str
     type: Literal["properties", "yml"]
-    keys: List[SpConfigKey]
+    keys: list[SpConfigKey]
 
 
-SPCONFIGS: List[dict] = [
+SPCONFIGS: list[dict] = [
     {
         "name": "server.properties",
         "path": "server.properties",
@@ -79,7 +79,8 @@ SPCONFIGS: List[dict] = [
             {
                 "name": "允许飞行",
                 "key": "allow-flight",
-                "description": "生存模式玩家悬空过久将被踢出，如果你被误杀，请打开此项允许悬空（默认：否）",
+                "description": "生存模式玩家悬空过久将被踢出，如果你被误杀，请打开此项允许悬空"
+                "（默认：否）",
                 "tips": "极其建议打开，太能误杀了",
                 "type": "bool",
                 "danger": False,
@@ -119,8 +120,10 @@ SPCONFIGS: List[dict] = [
             {
                 "name": "启用白名单",
                 "key": "white-list",
-                "description": "服务器是否启用白名单，启用后只有白名单中的玩家可以进入服务器（正版服独占，默认：否）",
-                "tips": "设置白名单可使用白名单相关指令，值得注意的是如果未设置入白名单，服主也无法进入服务器",
+                "description": "服务器是否启用白名单，启用后只有白名单中的玩家可以进入服务器"
+                "（正版服独占，默认：否）",
+                "tips": "设置白名单可使用白名单相关指令，"
+                "值得注意的是如果未设置入白名单，服主也无法进入服务器",
                 "type": "bool",
                 "danger": False,
             },

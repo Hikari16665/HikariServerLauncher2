@@ -4,11 +4,11 @@ All paths are resolved relative to the server's root directory.
 Path traversal outside the server root is blocked.
 """
 
+import mimetypes
 import os
 import shutil
-import mimetypes
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 class PathTraversalError(Exception):
@@ -31,7 +31,7 @@ def _safe_path(server_path: str, relative_path: str) -> str:
     return resolved
 
 
-def _file_info(abs_path: str, server_path: str) -> Dict[str, Any]:
+def _file_info(abs_path: str, server_path: str) -> dict[str, Any]:
     """Get metadata for a file or directory."""
     stat = os.stat(abs_path)
     rel_path = os.path.relpath(abs_path, server_path).replace("\\", "/")
@@ -44,7 +44,7 @@ def _file_info(abs_path: str, server_path: str) -> Dict[str, Any]:
     }
 
 
-def list_directory(server_path: str, relative_path: str = "") -> Dict[str, Any]:
+def list_directory(server_path: str, relative_path: str = "") -> dict[str, Any]:
     """List contents of a directory within the server."""
     try:
         target = _safe_path(server_path, relative_path) if relative_path else server_path
@@ -74,7 +74,7 @@ def list_directory(server_path: str, relative_path: str = "") -> Dict[str, Any]:
     }
 
 
-def read_file(server_path: str, relative_path: str) -> Dict[str, Any]:
+def read_file(server_path: str, relative_path: str) -> dict[str, Any]:
     """Read file contents. Returns raw text."""
     try:
         target = _safe_path(server_path, relative_path)
@@ -87,7 +87,7 @@ def read_file(server_path: str, relative_path: str) -> Dict[str, Any]:
         return {"error": f"Cannot read directory as file: {relative_path}"}
 
     try:
-        with open(target, "r", encoding="utf-8", errors="replace") as f:
+        with open(target, encoding="utf-8", errors="replace") as f:
             content = f.read()
     except Exception as e:
         return {"error": str(e)}
@@ -97,7 +97,7 @@ def read_file(server_path: str, relative_path: str) -> Dict[str, Any]:
     return info
 
 
-def write_file(server_path: str, relative_path: str, content: str) -> Dict[str, Any]:
+def write_file(server_path: str, relative_path: str, content: str) -> dict[str, Any]:
     """Write complete file contents. Creates parent directories if needed."""
     try:
         target = _safe_path(server_path, relative_path)
@@ -118,7 +118,7 @@ def write_file(server_path: str, relative_path: str, content: str) -> Dict[str, 
     return _file_info(target, server_path)
 
 
-def create_file(server_path: str, relative_path: str, content: str = "") -> Dict[str, Any]:
+def create_file(server_path: str, relative_path: str, content: str = "") -> dict[str, Any]:
     """Create a new file."""
     try:
         target = _safe_path(server_path, relative_path)
@@ -138,7 +138,7 @@ def create_file(server_path: str, relative_path: str, content: str = "") -> Dict
     return _file_info(target, server_path)
 
 
-def delete_file(server_path: str, relative_path: str) -> Dict[str, Any]:
+def delete_file(server_path: str, relative_path: str) -> dict[str, Any]:
     """Delete a file."""
     try:
         target = _safe_path(server_path, relative_path)
@@ -151,7 +151,7 @@ def delete_file(server_path: str, relative_path: str) -> Dict[str, Any]:
     if not os.path.exists(target):
         return {"error": f"Not found: {relative_path}"}
     if os.path.isdir(target):
-        return {"error": f"Use /api/servers/<uuid>/folders to delete directories"}
+        return {"error": "Use /api/servers/<uuid>/folders to delete directories"}
 
     try:
         os.remove(target)
@@ -161,7 +161,7 @@ def delete_file(server_path: str, relative_path: str) -> Dict[str, Any]:
     return {"success": True, "path": relative_path}
 
 
-def create_folder(server_path: str, relative_path: str) -> Dict[str, Any]:
+def create_folder(server_path: str, relative_path: str) -> dict[str, Any]:
     """Create a new directory."""
     try:
         target = _safe_path(server_path, relative_path)
@@ -179,9 +179,7 @@ def create_folder(server_path: str, relative_path: str) -> Dict[str, Any]:
     return _file_info(target, server_path)
 
 
-def delete_folder(
-    server_path: str, relative_path: str, recursive: bool = False
-) -> Dict[str, Any]:
+def delete_folder(server_path: str, relative_path: str, recursive: bool = False) -> dict[str, Any]:
     """Delete a directory. Must be empty unless recursive=True."""
     try:
         target = _safe_path(server_path, relative_path)
@@ -204,7 +202,7 @@ def delete_folder(
             os.rmdir(target)  # Will fail if not empty
     except OSError as e:
         if not recursive and "directory not empty" in str(e).lower():
-            return {"error": f"Directory not empty. Use recursive=true to delete recursively"}
+            return {"error": "Directory not empty. Use recursive=true to delete recursively"}
         return {"error": str(e)}
     except Exception as e:
         return {"error": str(e)}
@@ -212,7 +210,9 @@ def delete_folder(
     return {"success": True, "path": relative_path}
 
 
-def upload_file(server_path: str, relative_path: str, file_data: bytes, filename: str) -> Dict[str, Any]:
+def upload_file(
+    server_path: str, relative_path: str, file_data: bytes, filename: str
+) -> dict[str, Any]:
     """Save an uploaded file to the server directory."""
     try:
         target_dir = _safe_path(server_path, relative_path) if relative_path else server_path

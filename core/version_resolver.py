@@ -5,14 +5,14 @@ The `use_mirror` parameter reverses source list order (mirror-first).
 """
 
 import platform
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 
 from .source import SourceManager
 
 
-def _http_get(url: str, **kwargs) -> Optional[httpx.Response]:
+def _http_get(url: str, **kwargs) -> httpx.Response | None:
     try:
         with httpx.Client(timeout=httpx.Timeout(30.0, connect=15.0)) as client:
             resp = client.get(url, follow_redirects=True, **kwargs)
@@ -23,7 +23,7 @@ def _http_get(url: str, **kwargs) -> Optional[httpx.Response]:
     return None
 
 
-def _http_post_json(url: str, json_data: dict) -> Optional[httpx.Response]:
+def _http_post_json(url: str, json_data: dict) -> httpx.Response | None:
     try:
         with httpx.Client(timeout=httpx.Timeout(30.0, connect=15.0)) as client:
             resp = client.post(url, json=json_data, follow_redirects=True)
@@ -43,7 +43,7 @@ def _ordered_sources(sources: list, use_mirror: bool) -> list:
 # ── Vanilla ──────────────────────────────────────────────────────
 
 
-def get_vanilla_versions(use_mirror: bool = False) -> Dict[str, Any]:
+def get_vanilla_versions(use_mirror: bool = False) -> dict[str, Any]:
     """Fetch vanilla Minecraft version manifest.
 
     Returns all versions and also a filtered list of release versions.
@@ -63,11 +63,13 @@ def get_vanilla_versions(use_mirror: bool = False) -> Dict[str, Any]:
                 all_versions = data.get("versions", [])
                 releases = [
                     {"id": v["id"], "type": v["type"], "release_time": v.get("releaseTime", "")}
-                    for v in all_versions if v.get("type") == "release"
+                    for v in all_versions
+                    if v.get("type") == "release"
                 ]
                 snapshots = [
                     {"id": v["id"], "type": v["type"], "release_time": v.get("releaseTime", "")}
-                    for v in all_versions if v.get("type") == "snapshot"
+                    for v in all_versions
+                    if v.get("type") == "snapshot"
                 ]
                 break
 
@@ -154,10 +156,9 @@ query VersionBuilds($projectKey: String!, $versionKey: String!, $after: String) 
 """
 
 
-def _paper_graphql(query: str, variables: dict) -> Optional[dict]:
+def _paper_graphql(query: str, variables: dict) -> dict | None:
     """Execute a GraphQL query against the PaperMC fill API."""
     try:
-        import json as _json
         payload = {"operationName": None, "query": query, "variables": variables}
         resp = _http_post_json(PAPER_GRAPHQL_URL, payload)
         if resp and resp.status_code == 200:
@@ -167,7 +168,7 @@ def _paper_graphql(query: str, variables: dict) -> Optional[dict]:
     return None
 
 
-def get_paper_versions(mc_version: Optional[str] = None) -> Dict[str, Any]:
+def get_paper_versions(mc_version: str | None = None) -> dict[str, Any]:
     """Get PaperMC version families and sub-versions using GraphQL.
 
     Without mc_version: returns all families as versions list.
@@ -193,12 +194,14 @@ def get_paper_versions(mc_version: Optional[str] = None) -> Dict[str, Any]:
             versions_data = sub_project.get("versions", {})
             for edge in versions_data.get("edges", []):
                 node = edge.get("node", {})
-                sub_versions.append({
-                    "id": node.get("id", ""),
-                    "key": node.get("key", ""),
-                    "support_status": node.get("support", {}).get("status", ""),
-                    "support_end": node.get("support", {}).get("end"),
-                })
+                sub_versions.append(
+                    {
+                        "id": node.get("id", ""),
+                        "key": node.get("key", ""),
+                        "support_status": node.get("support", {}).get("status", ""),
+                        "support_end": node.get("support", {}).get("end"),
+                    }
+                )
 
         return {
             "mc_version": mc_version,
@@ -216,11 +219,13 @@ def get_paper_versions(mc_version: Optional[str] = None) -> Dict[str, Any]:
         raw_families = project.get("families", [])
 
         for fam in raw_families:
-            versions.append({
-                "id": fam.get("key", ""),
-                "type": "release",
-                "release_time": "",
-            })
+            versions.append(
+                {
+                    "id": fam.get("key", ""),
+                    "type": "release",
+                    "release_time": "",
+                }
+            )
 
     return {
         "releases": versions,
@@ -228,7 +233,7 @@ def get_paper_versions(mc_version: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
-def get_paper_builds(sub_version: str) -> Dict[str, Any]:
+def get_paper_builds(sub_version: str) -> dict[str, Any]:
     """Get PaperMC builds for a specific sub-version using GraphQL.
 
     Returns builds with download URLs, channel info, and creation dates.
@@ -254,14 +259,16 @@ def get_paper_builds(sub_version: str) -> Dict[str, Any]:
                 checksums = downloads[0].get("checksums", {})
                 sha256 = checksums.get("sha256", "")
 
-            builds.append({
-                "number": node.get("number", 0),
-                "channel": node.get("channel", "default"),
-                "created_at": node.get("createdAt", ""),
-                "download_url": download_url,
-                "download_name": download_name,
-                "sha256": sha256,
-            })
+            builds.append(
+                {
+                    "number": node.get("number", 0),
+                    "channel": node.get("channel", "default"),
+                    "created_at": node.get("createdAt", ""),
+                    "download_url": download_url,
+                    "download_name": download_name,
+                    "sha256": sha256,
+                }
+            )
 
     return {
         "sub_version": sub_version,
@@ -272,23 +279,25 @@ def get_paper_builds(sub_version: str) -> Dict[str, Any]:
 # ── April (愚人节) ───────────────────────────────────────────────
 
 
-def get_april_versions() -> Dict[str, Any]:
+def get_april_versions() -> dict[str, Any]:
     """Get April Fools Minecraft server versions."""
     source = SourceManager().get()
     versions = []
     for av in source.mc.april.list:
-        versions.append({
-            "name": av.name,
-            "version": av.version,
-            "download_url": av.link,
-        })
+        versions.append(
+            {
+                "name": av.name,
+                "version": av.version,
+                "download_url": av.link,
+            }
+        )
     return {"versions": versions}
 
 
 # ── Forge ────────────────────────────────────────────────────────
 
 
-def get_forge_versions(mc_version: Optional[str] = None, use_mirror: bool = False) -> Dict[str, Any]:
+def get_forge_versions(mc_version: str | None = None, use_mirror: bool = False) -> dict[str, Any]:
     """Get Forge versions.
 
     If mc_version is provided, returns forge versions for that MC version.
@@ -297,7 +306,7 @@ def get_forge_versions(mc_version: Optional[str] = None, use_mirror: bool = Fals
     source = SourceManager().get()
     sources = _ordered_sources(source.forge.list, use_mirror)
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "mc_versions": [],
         "forge_versions": [],
     }
@@ -312,14 +321,16 @@ def get_forge_versions(mc_version: Optional[str] = None, use_mirror: bool = Fals
                     data = resp.json()
                     sorted_builds = sorted(data, key=lambda b: b.get("build", 0), reverse=True)
                     for b in sorted_builds:
-                        result["forge_versions"].append({
-                            "version": b.get("version", ""),
-                            "build": b.get("build", 0),
-                            "mc_version": b.get("mcversion", mc_version),
-                            "installer_url": fs.download
-                            if fs.download and "download" in dir(fs)
-                            else None,
-                        })
+                        result["forge_versions"].append(
+                            {
+                                "version": b.get("version", ""),
+                                "build": b.get("build", 0),
+                                "mc_version": b.get("mcversion", mc_version),
+                                "installer_url": fs.download
+                                if fs.download and "download" in dir(fs)
+                                else None,
+                            }
+                        )
                     result["source_type"] = fs.type
                     break
             elif fs.type == "official" and fs.metadata:
@@ -355,12 +366,14 @@ def get_forge_versions(mc_version: Optional[str] = None, use_mirror: bool = Fals
 # ── NeoForge ─────────────────────────────────────────────────────
 
 
-def get_neoforge_versions(mc_version: Optional[str] = None, use_mirror: bool = False) -> Dict[str, Any]:
+def get_neoforge_versions(
+    mc_version: str | None = None, use_mirror: bool = False
+) -> dict[str, Any]:
     """Get NeoForge versions."""
     source = SourceManager().get()
     sources = _ordered_sources(source.neoforge.list, use_mirror)
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "mc_versions": [],
         "neoforge_versions": [],
     }
@@ -393,7 +406,7 @@ def get_neoforge_versions(mc_version: Optional[str] = None, use_mirror: bool = F
 # ── Fabric ───────────────────────────────────────────────────────
 
 
-def get_fabric_versions(use_mirror: bool = False) -> Dict[str, Any]:
+def get_fabric_versions(use_mirror: bool = False) -> dict[str, Any]:
     """Get Fabric loader and supported MC versions.
 
     Fabric only has official source; mirror parameter is accepted for
@@ -414,8 +427,7 @@ def get_fabric_versions(use_mirror: bool = False) -> Dict[str, Any]:
                 data = resp.json()
                 stable = [v for v in data if v.get("stable")]
                 mc_versions = [
-                    {"version": v["version"], "stable": v.get("stable", True)}
-                    for v in stable
+                    {"version": v["version"], "stable": v.get("stable", True)} for v in stable
                 ]
 
             # Fetch loader versions
@@ -457,9 +469,7 @@ def get_recommended_java_version(mc_version: str) -> str:
                 return "8"
             elif minor <= 19:
                 return "17"
-            elif minor <= 25:
-                return "21"
-            elif minor == 26 and patch == 0:
+            elif minor <= 25 or minor == 26 and patch == 0:
                 return "21"
             else:
                 return "25"
@@ -470,7 +480,7 @@ def get_recommended_java_version(mc_version: str) -> str:
     return "21"
 
 
-def get_java_versions(use_mirror: bool = False) -> Dict[str, Any]:
+def get_java_versions(use_mirror: bool = False) -> dict[str, Any]:
     """Get available Java versions.
 
     Automatically detects OS (Windows/Linux) and returns appropriate URLs.
@@ -486,13 +496,15 @@ def get_java_versions(use_mirror: bool = False) -> Dict[str, Any]:
     for js in sources:
         urls = js.windows if is_windows else js.linux
         for ver, url in urls.items():
-            versions.append({
-                "version": ver,
-                "source": js.type,
-                "source_label": "mirror" if js.type == "lingyi" else "normal",
-                "download_url": url,
-                "os": os_key,
-            })
+            versions.append(
+                {
+                    "version": ver,
+                    "source": js.type,
+                    "source_label": "mirror" if js.type == "lingyi" else "normal",
+                    "download_url": url,
+                    "os": os_key,
+                }
+            )
 
     return {
         "os": os_key,
