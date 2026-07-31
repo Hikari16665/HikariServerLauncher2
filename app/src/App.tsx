@@ -12,6 +12,9 @@ import Settings from "./pages/Settings";
 import About from "./pages/About";
 import Onboarding from "./pages/Onboarding";
 import Login from "./pages/Login";
+import Market from "./pages/Market";
+import Addons from "./pages/Addons";
+import Diagnostics from "./pages/Diagnostics";
 
 function AppRoutes() {
   const { onboardingDone, token } = useSettings();
@@ -41,6 +44,9 @@ function AppRoutes() {
         <Route path="servers" element={<Servers />} />
         <Route path="servers/:uuid" element={<ServerDetail />} />
         <Route path="install" element={<CreateServer />} />
+        <Route path="market" element={<Market />} />
+        <Route path="addons" element={<Addons />} />
+        <Route path="diagnostics" element={<Diagnostics />} />
         <Route path="settings" element={<Settings />} />
         <Route path="about" element={<About />} />
       </Route>

@@ -143,18 +143,8 @@ export default function Dashboard() {
   };
 
   return (
-    <div style={{ padding: "20px 24px", height: "100%", overflow: "auto" }}>
-      <h1
-        style={{
-          fontSize: 18,
-          fontWeight: 600,
-          marginBottom: 18,
-          color: "var(--text-primary)",
-          letterSpacing: "-0.02em",
-        }}
-      >
-        面板
-      </h1>
+    <section className="page-shell dashboard-page">
+      <header className="page-header"><div><span className="page-kicker">OVERVIEW</span><h1>系统概览</h1><p>实时查看主机资源、网络吞吐和服务器磁盘占用。</p></div></header>
 
       {error && (
         <div
@@ -172,7 +162,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div
+      <div className="dashboard-grid"
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(2, 1fr)",
@@ -315,6 +305,6 @@ export default function Dashboard() {
           )}
         </div>
       </div>
-    </div>
+    </section>
   );
 }

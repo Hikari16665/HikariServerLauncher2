@@ -46,6 +46,18 @@ from core.server_file_manager import (
     write_file,
 )
 from core.server_process import ServerProcessManager, export_launch_script
+from core.server_diagnostics import diagnose_server
+from core.modrinth_market import (
+    categories_for,
+    delete_addon,
+    install_version,
+    list_addons,
+    project_versions,
+    search_projects,
+    server_market_info,
+    update_addon,
+    version_details,
+)
 from core.tui import TUI
 from core.version_resolver import (
     get_april_versions,
@@ -165,13 +177,28 @@ if env_info.network_info:
     logger.info(f"映射地址:    {env_info.network_info.mapped_address}")
     logger.info(f"映射端口:    {env_info.network_info.mapped_port}")
     logger.info(f"STUN 服务器: {env_info.network_info.stun_server}")
+    if env_info.network_info.stun_observations:
+        logger.info(f"STUN 样本数:  {len(env_info.network_info.stun_observations)}")
+        for sample in env_info.network_info.stun_observations:
+            logger.info(
+                f"  {sample['server']}: {sample['external_ip']}:"
+                f"{sample['external_port']} ({sample['nat_type']})"
+            )
+    if env_info.network_info.route_hops:
+        logger.info(f"上游路由:    {' -> '.join(env_info.network_info.route_hops)}")
+    if env_info.network_info.router_wan_ip:
+        logger.info(f"路由器 WAN:  {env_info.network_info.router_wan_ip}")
 
     if env_info.network_info.cgnat:
         cgnat = env_info.network_info.cgnat
         logger.info("-" * 60)
         logger.info("CGNAT 检测".center(60))
         logger.info("-" * 60)
-        status = "检测到 CGNAT" if cgnat.is_cgnat else "未检测到 CGNAT"
+        status = {
+            "confirmed": "检测到 CGNAT",
+            "likely": "疑似 CGNAT",
+            "not_detected": "未检测到 CGNAT",
+        }.get(cgnat.verdict, "疑似 CGNAT" if cgnat.is_cgnat else "未检测到 CGNAT")
         color_func = logger.error if cgnat.is_cgnat else logger.info
         color_func(f"状态:        {status}")
         logger.info(f"置信度:      {cgnat.confidence:.2%}")
@@ -276,6 +303,21 @@ def get_server(server_uuid):
     return jsonify({"server": server.to_dict()})
 
 
+@app.route("/api/servers/<server_uuid>/diagnostics", methods=["POST"])
+def run_server_diagnostics(server_uuid):
+    if not auth.require_auth(request):
+        return jsonify({"error": auth.get_auth_error(request)}), 401
+    server = workspace.get_server_by_uuid(server_uuid)
+    if not server:
+        return jsonify({"error": "Server not found"}), 404
+    try:
+        return jsonify(diagnose_server(server))
+    except Exception as error:
+        logger.error(f"服务器检测失败 ({server.name}): {error}")
+        logger.debug(traceback.format_exc())
+        return jsonify({"error": f"服务器检测失败: {error}"}), 500
+
+
 @app.route("/api/servers/create", methods=["POST"])
 def create_server():
     if not auth.require_auth(request):
@@ -304,6 +346,7 @@ def create_server():
 
     # Create task for async server setup (download jar, java, etc.)
     version = data.get("version", "")
+    mc_version = data.get("mc_version", "")
     java_version = data.get("java_version", "25")
 
     task = tm.create_composite_task(
@@ -314,8 +357,11 @@ def create_server():
             server_type,
             java_version=java_version,
             version=version,
+            mc_version=mc_version,
         )
     )
+    task.title = f"Create {server.name}"
+    task.set_step("queued", "Waiting to start", "pending")
 
     # Start the task in a background thread
     tm.run_task_background(task.task_id)
@@ -770,6 +816,8 @@ def create_backup(server_uuid: str):
     task = tm.create_composite_task(
         execute_fn=lambda t, sp: bm.create_backup_sync(server.path, server_uuid, task=t)
     )
+    task.title = f"Back up {server.name}"
+    task.set_step("backup", "Archive server files", "pending")
     tm.run_task_background(task.task_id)
 
     return jsonify({"success": True, "task_id": task.task_id, "server_uuid": server_uuid})
@@ -811,6 +859,8 @@ def restore_backup(server_uuid, filename):
     task = tm.create_composite_task(
         execute_fn=lambda t, sp: bm.restore_backup_sync(server.path, filename, task=t)
     )
+    task.title = f"Restore {server.name}"
+    task.set_step("restore", "Restore backup archive", "pending")
     tm.run_task_background(task.task_id)
 
     return jsonify(
@@ -1086,6 +1136,32 @@ def list_java_versions():
 
 if sock is not None:
 
+    @sock.route("/api/tasks/stream")
+    def task_stream(ws):
+        """Push task snapshots. The client never needs to poll task endpoints."""
+        token = ws_request.args.get("token", "")
+        valid = auth.validate_token(token) if token else auth.require_auth(ws_request)
+        if not valid:
+            ws.send(json.dumps({"type": "error", "message": "Unauthorized"}))
+            ws.close()
+            return
+
+        send_lock = threading.Lock()
+
+        def send(event):
+            with send_lock:
+                ws.send(json.dumps(event))
+
+        unsubscribe = tm.subscribe(send)
+        try:
+            send({"type": "task_snapshot", "tasks": [t.to_dict() for t in tm.get_tasks()]})
+            while ws.receive() is not None:
+                pass
+        except Exception:
+            pass
+        finally:
+            unsubscribe()
+
     @sock.route("/api/servers/<server_uuid>/terminal")
     def server_terminal(ws, server_uuid):
         # Authenticate via query parameter
@@ -1201,6 +1277,91 @@ def system_license():
         return jsonify({"text": text})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── Modrinth market and add-on management ─────────────────────────
+
+def _market_server(server_uuid):
+    server = workspace.get_server_by_uuid(server_uuid)
+    if not server:
+        raise LookupError("Server not found")
+    return server
+
+
+@app.route("/api/market/server/<server_uuid>", methods=["GET"])
+def market_server_info(server_uuid):
+    if not auth.require_auth(request): return jsonify({"error": auth.get_auth_error(request)}), 401
+    try: return jsonify(server_market_info(_market_server(server_uuid)))
+    except LookupError as error: return jsonify({"error": str(error)}), 404
+    except ValueError as error: return jsonify({"error": str(error)}), 400
+
+
+@app.route("/api/market/categories/<server_uuid>", methods=["GET"])
+def market_categories(server_uuid):
+    if not auth.require_auth(request): return jsonify({"error": auth.get_auth_error(request)}), 401
+    try: return jsonify({"categories": categories_for(_market_server(server_uuid))})
+    except LookupError as error: return jsonify({"error": str(error)}), 404
+    except Exception as error: return jsonify({"error": str(error)}), 502
+
+
+@app.route("/api/market/search", methods=["GET"])
+def market_search():
+    if not auth.require_auth(request): return jsonify({"error": auth.get_auth_error(request)}), 401
+    try:
+        return jsonify(search_projects(_market_server(request.args.get("server_uuid", "")), request.args.get("query", ""), request.args.get("category", ""), request.args.get("index", "relevance"), request.args.get("offset", type=int, default=0), request.args.get("limit", type=int, default=20)))
+    except LookupError as error: return jsonify({"error": str(error)}), 404
+    except ValueError as error: return jsonify({"error": str(error)}), 400
+    except Exception as error: return jsonify({"error": str(error)}), 502
+
+
+@app.route("/api/market/projects/<project_id>/versions", methods=["GET"])
+def market_versions(project_id):
+    if not auth.require_auth(request): return jsonify({"error": auth.get_auth_error(request)}), 401
+    try: return jsonify({"versions": project_versions(_market_server(request.args.get("server_uuid", "")), project_id)})
+    except LookupError as error: return jsonify({"error": str(error)}), 404
+    except Exception as error: return jsonify({"error": str(error)}), 502
+
+
+@app.route("/api/market/versions/<version_id>", methods=["GET"])
+def market_version(version_id):
+    if not auth.require_auth(request): return jsonify({"error": auth.get_auth_error(request)}), 401
+    try: return jsonify(version_details(_market_server(request.args.get("server_uuid", "")), version_id))
+    except LookupError as error: return jsonify({"error": str(error)}), 404
+    except Exception as error: return jsonify({"error": str(error)}), 502
+
+
+@app.route("/api/market/install", methods=["POST"])
+def market_install():
+    if not auth.require_auth(request): return jsonify({"error": auth.get_auth_error(request)}), 401
+    data = request.get_json() or {}
+    try: server = _market_server(data.get("server_uuid", "")); version_id = data["version_id"]
+    except LookupError as error: return jsonify({"error": str(error)}), 404
+    except KeyError: return jsonify({"error": "Missing version_id"}), 400
+    task = tm.create_composite_task(execute_fn=lambda current, _progress: install_version(current, server, version_id, bool(data.get("install_dependencies", True))))
+    task.title = f"安装附加到 {server.name}"
+    task.set_step("queued", "等待下载", "pending")
+    tm.run_task_background(task.task_id)
+    return jsonify({"success": True, "task_id": task.task_id})
+
+
+@app.route("/api/servers/<server_uuid>/addons", methods=["GET"])
+def server_addons(server_uuid):
+    if not auth.require_auth(request): return jsonify({"error": auth.get_auth_error(request)}), 401
+    try: return jsonify(list_addons(_market_server(server_uuid)))
+    except LookupError as error: return jsonify({"error": str(error)}), 404
+    except ValueError as error: return jsonify({"error": str(error)}), 400
+
+
+@app.route("/api/servers/<server_uuid>/addons/<path:filename>", methods=["PUT", "DELETE"])
+def server_addon(server_uuid, filename):
+    if not auth.require_auth(request): return jsonify({"error": auth.get_auth_error(request)}), 401
+    try:
+        server = _market_server(server_uuid)
+        if request.method == "DELETE": delete_addon(server, filename); return jsonify({"success": True})
+        data = request.get_json() or {}; return jsonify(update_addon(server, filename, data.get("enabled"), data.get("name")))
+    except LookupError as error: return jsonify({"error": str(error)}), 404
+    except FileNotFoundError as error: return jsonify({"error": str(error)}), 404
+    except ValueError as error: return jsonify({"error": str(error)}), 400
 
 
 # ── Static / Ping ────────────────────────────────────────────────

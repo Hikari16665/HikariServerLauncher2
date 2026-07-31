@@ -321,6 +321,16 @@ def get_forge_versions(mc_version: str | None = None, use_mirror: bool = False) 
                     data = resp.json()
                     sorted_builds = sorted(data, key=lambda b: b.get("build", 0), reverse=True)
                     for b in sorted_builds:
+                        # Match the original launcher: a Forge build is installable only
+                        # when its metadata explicitly contains an installer JAR.
+                        files = b.get("files") or []
+                        has_installer = any(
+                            item.get("category") == "installer"
+                            and item.get("format") == "jar"
+                            for item in files
+                        )
+                        if not has_installer:
+                            continue
                         result["forge_versions"].append(
                             {
                                 "version": b.get("version", ""),

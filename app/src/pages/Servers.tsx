@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import type { Server, ServerStatus } from "../lib/types";
@@ -7,244 +7,32 @@ import { showConfirm } from "../components/ConfirmDialog";
 
 export default function Servers() {
   const navigate = useNavigate();
+  const addToast = useToastStore((state) => state.addToast);
   const [servers, setServers] = useState<Server[]>([]);
   const [statuses, setStatuses] = useState<Record<string, ServerStatus>>({});
   const [loading, setLoading] = useState(true);
-  const addToast = useToastStore((s) => s.addToast);
+  const [query, setQuery] = useState("");
+  const [stateFilter, setStateFilter] = useState<"all" | "running" | "stopped">("all");
 
-  useEffect(() => {
-    api
-      .get<{ servers: Server[] }>("/api/servers")
-      .then((d) => setServers(d.servers))
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
+  const load = () => api.get<{ servers: Server[] }>("/api/servers").then(({ servers }) => setServers(servers)).catch((error) => addToast("无法加载服务器", "error", error?.detail)).finally(() => setLoading(false));
+  useEffect(() => { load(); }, []);
+  useEffect(() => { if (!servers.length) return; const refresh = () => servers.forEach((server) => api.get<ServerStatus>(`/api/servers/${server.uuid}/status`).then((status) => setStatuses((current) => ({ ...current, [server.uuid]: status }))).catch(() => undefined)); refresh(); const timer = setInterval(refresh, 5000); return () => clearInterval(timer); }, [servers]);
 
-  useEffect(() => {
-    if (servers.length === 0) return;
-    const poll = () => {
-      for (const s of servers) {
-        api
-          .get<ServerStatus>(`/api/servers/${s.uuid}/status`)
-          .then((st) =>
-            setStatuses((prev) => ({ ...prev, [s.uuid]: st }))
-          )
-          .catch(() => {});
-      }
-    };
-    poll();
-    const timer = setInterval(poll, 5000);
-    return () => clearInterval(timer);
-  }, [servers]);
+  const visible = useMemo(() => servers.filter((server) => {
+    const running = Boolean(statuses[server.uuid]?.running);
+    const matchesState = stateFilter === "all" || (stateFilter === "running" ? running : !running);
+    return matchesState && `${server.name} ${server.server_type} ${server.uuid}`.toLowerCase().includes(query.toLowerCase());
+  }), [servers, statuses, stateFilter, query]);
 
-  async function handleAction(
-    uuid: string,
-    action: "start" | "stop" | "kill",
-    name: string
-  ) {
-    try {
-      const data = await api.post<{ success: boolean; message?: string }>(
-        `/api/servers/${uuid}/${action}`
-      );
-      if (data.success) {
-        const st = await api.get<ServerStatus>(`/api/servers/${uuid}/status`);
-        setStatuses((prev) => ({ ...prev, [uuid]: st }));
-        addToast(
-          `${name}: ${
-            action === "start" ? "启动中" : action === "kill" ? "已强制终止" : "已停止"
-          }`,
-          "success"
-        );
-      }
-    } catch (e: any) {
-      addToast(e.message || `${action} failed`, "error", e.detail);
-    }
-  }
+  async function runAction(server: Server, action: "start" | "stop" | "kill") { try { await api.post(`/api/servers/${server.uuid}/${action}`); const status = await api.get<ServerStatus>(`/api/servers/${server.uuid}/status`); setStatuses((current) => ({ ...current, [server.uuid]: status })); addToast(action === "start" ? "服务器已启动" : "服务器已停止", "success"); } catch (error: any) { addToast(error.message || "操作失败", "error", error.detail); } }
+  async function removeServer(server: Server) { if (!await showConfirm(`确定删除“${server.name}”吗？服务器目录和文件将永久删除。`)) return; try { await api.delete(`/api/servers/${server.uuid}`); setServers((items) => items.filter((item) => item.uuid !== server.uuid)); addToast("服务器已删除", "success"); } catch (error: any) { addToast(error.message || "删除失败", "error", error.detail); } }
 
-  async function handleDelete(uuid: string, name: string) {
-    const ok = await showConfirm(
-      `确认删除服务器 "${name}"？此操作不可恢复，服务器文件夹将被永久删除。`
-    );
-    if (!ok) return;
-    try {
-      await api.delete(`/api/servers/${uuid}`);
-      setServers((prev) => prev.filter((s) => s.uuid !== uuid));
-      setStatuses((prev) => {
-        const next = { ...prev };
-        delete next[uuid];
-        return next;
-      });
-      addToast(`${name} 已删除`, "success");
-    } catch (e: any) {
-      addToast(e.message || "删除失败", "error", e.detail);
-    }
-  }
-
-  if (loading) {
-    return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "100%",
-          color: "var(--text-muted)",
-          fontSize: 13,
-        }}
-      >
-        加载中...
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ padding: 24, maxWidth: 800, margin: "0 auto", width: "100%", height: "100%", overflow: "auto" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 20,
-        }}
-      >
-        <h1
-          style={{
-            fontSize: 20,
-            fontWeight: 600,
-            color: "var(--text-primary)",
-          }}
-        >
-          服务器
-        </h1>
-        {servers.length > 0 && (
-          <button
-            className="btn-primary"
-            onClick={() => navigate("/install")}
-            style={{ fontSize: 13 }}
-          >
-            安装新服务器
-          </button>
-        )}
-      </div>
-
-      {servers.length === 0 ? (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "80px 0",
-            color: "var(--text-muted)",
-            gap: 16,
-          }}
-        >
-          <p style={{ fontSize: 14 }}>暂无服务器</p>
-          <button
-            className="btn-primary"
-            onClick={() => navigate("/install")}
-            style={{ fontSize: 13 }}
-          >
-            前往安装来添加服务器
-          </button>
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {servers.map((s) => {
-            const st = statuses[s.uuid];
-            const running = st?.running;
-            return (
-              <div
-                key={s.uuid}
-                onClick={() => navigate(`/servers/${s.uuid}`)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "12px 16px",
-                  background: "var(--bg-secondary)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius)",
-                  cursor: "pointer",
-                  transition: "border-color 0.15s, background 0.15s",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "var(--accent)";
-                  e.currentTarget.style.background = "var(--bg-tertiary)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "var(--border)";
-                  e.currentTarget.style.background = "var(--bg-secondary)";
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-                  <div
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 4,
-                      background: running ? "var(--green)" : "var(--text-muted)",
-                      flexShrink: 0,
-                    }}
-                  />
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
-                      {s.name}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: "var(--text-muted)",
-                        marginTop: 1,
-                      }}
-                    >
-                      {s.server_type} / Java {s.java_version} / {s.max_memory}MB
-                    </div>
-                  </div>
-                </div>
-                <div
-                  style={{ display: "flex", gap: 6, flexShrink: 0 }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {running ? (
-                    <>
-                      <button
-                        className="btn-ghost"
-                        style={{ fontSize: 12, padding: "4px 10px" }}
-                        onClick={() => handleAction(s.uuid, "stop", s.name)}
-                      >
-                        停止
-                      </button>
-                      <button
-                        className="btn-ghost"
-                        style={{ fontSize: 12, padding: "4px 10px" }}
-                        onClick={() => handleAction(s.uuid, "kill", s.name)}
-                      >
-                        强制终止
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      className="btn-success"
-                      style={{ fontSize: 12, padding: "4px 10px" }}
-                      onClick={() => handleAction(s.uuid, "start", s.name)}
-                    >
-                      启动
-                    </button>
-                  )}
-                  <button
-                    className="btn-ghost"
-                    style={{ fontSize: 12, padding: "4px 10px" }}
-                    onClick={() => handleDelete(s.uuid, s.name)}
-                  >
-                    删除
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+  return <section className="page-shell server-list-page">
+    <header className="utility-header"><div><h1>服务器</h1><p>{servers.length} 个实例 · {Object.values(statuses).filter((s) => s.running).length} 个运行中</p></div><button className="btn-primary" onClick={() => navigate("/install")}>安装服务器</button></header>
+    <div className="tool-row"><input className="table-search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索名称、类型或标识…" /><div className="segmented">{(["all", "running", "stopped"] as const).map((item) => <button key={item} className={stateFilter === item ? "active" : ""} onClick={() => setStateFilter(item)}>{item === "all" ? "全部" : item === "running" ? "运行中" : "已停止"}</button>)}</div><button className="btn-ghost" onClick={load}>刷新</button></div>
+    <div className="data-panel">
+      <div className="server-table server-table-head"><span>服务器</span><span>类型</span><span>状态</span><span>内存</span><span>进程</span><span>标识</span><span>操作</span></div>
+      {loading ? <div className="table-empty">正在读取服务器…</div> : visible.length === 0 ? <div className="table-empty"><strong>{servers.length ? "没有匹配的服务器" : "还没有服务器"}</strong><span>{servers.length ? "请调整搜索或筛选条件" : "点击右上角“安装服务器”创建第一个实例"}</span></div> : visible.map((server) => { const status = statuses[server.uuid]; const running = Boolean(status?.running); return <div className="server-table server-row" key={server.uuid} onDoubleClick={() => navigate(`/servers/${server.uuid}`)}><span className="server-cell-name"><i className={`status-dot ${running ? "running" : ""}`} /><strong>{server.name}</strong></span><span>{server.server_type}<small>Java {server.java_version}</small></span><span className={running ? "success-text" : "muted-text"}>{running ? "运行中" : "已停止"}</span><span>{server.max_memory} MB</span><span className="mono-cell">{status?.pid ?? "—"}</span><span className="mono-cell">{server.uuid.slice(0, 8)}</span><span className="row-actions"><button className="btn-ghost" onClick={() => navigate(`/servers/${server.uuid}`)}>管理</button>{running ? <button className="btn-ghost" onClick={() => runAction(server, "stop")}>停止</button> : <button className="btn-success" onClick={() => runAction(server, "start")}>启动</button>}<button className="more-button" onClick={() => removeServer(server)} title="删除">•••</button></span></div>; })}
     </div>
-  );
+  </section>;
 }

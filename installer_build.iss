@@ -6,7 +6,7 @@
 #define MyAppVersion "2.0.0"
 #define MyAppPublisher "HikariRevivalProject"
 #define MyAppURL "https://hsl.hikari.bond/"
-#define MyAppExeName "start.bat"
+#define MyAppExeName "HSL2-Launcher.exe"
 #define arch "x86_64"
 
 [Setup]
@@ -22,28 +22,29 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\HSL2
 DisableProgramGroupPage=yes
-LicenseFile=C:\Users\Hikari\Desktop\HSL2\dist\LICENSE
+LicenseFile=dist\LICENSE
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
-OutputDir=C:\Users\Hikari\Desktop\HSL2\installer
+OutputDir=installer
 OutputBaseFilename=HSL2-{#MyAppVersion}-windows-{#arch}-setup
-SetupIconFile=C:\Users\Hikari\Desktop\HSL2\imgs\HSL.ico
+SetupIconFile=imgs\HSL.ico
 SolidCompression=yes
 WizardStyle=modern
 
 [Languages]
-Name: "ChineseSimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+Name: "ChineseSimplified"; MessagesFile: "compiler:Languages\Chinese.isl"
 Name: "English"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "C:\Users\Hikari\Desktop\HSL2\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\Hikari\Desktop\HSL2\dist\hsl-app.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\Hikari\Desktop\HSL2\dist\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\Hikari\Desktop\HSL2\dist\hsl-server\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\hsl-app.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\USAGE.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "dist\hsl-server\*"; DestDir: "{app}\hsl-server"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]
@@ -52,4 +53,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: shellexec postinstall skipifsilent
+
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "HSL2 Backend"; Flags: deletevalue uninsdeletevalue
 

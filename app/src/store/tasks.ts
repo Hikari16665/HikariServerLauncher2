@@ -18,7 +18,9 @@ export const useTaskStore = create<TaskState>()((set) => ({
   setTasks: (tasks) => set({ tasks }),
   updateTask: (task) =>
     set((s) => ({
-      tasks: s.tasks.map((t) => (t.task_id === task.task_id ? task : t)),
+      tasks: s.tasks.some((t) => t.task_id === task.task_id)
+        ? s.tasks.map((t) => (t.task_id === task.task_id ? task : t))
+        : [task, ...s.tasks],
     })),
   setFilter: (filter) => set({ filter }),
   setExpanded: (expanded) => set({ expanded }),

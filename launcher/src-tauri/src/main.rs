@@ -1,0 +1,237 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use serde::Serialize;
+use std::{
+    env,
+    net::{SocketAddr, TcpStream},
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    thread,
+    time::{Duration, Instant},
+};
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+const AUTOSTART_NAME: &str = "HSL2 Backend";
+
+#[derive(Serialize)]
+struct LauncherStatus {
+    backend_available: bool,
+    frontend_available: bool,
+    backend_running: bool,
+    autostart_enabled: bool,
+    install_dir: String,
+}
+
+fn executable_dir() -> Result<PathBuf, String> {
+    env::current_exe()
+        .map_err(|error| format!("Unable to locate the launcher: {error}"))?
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "Unable to determine the launcher directory.".to_string())
+}
+
+fn install_dir() -> Result<PathBuf, String> {
+    if let Ok(value) = env::var("HSL2_INSTALL_DIR") {
+        let path = PathBuf::from(value);
+        if path.is_dir() {
+            return Ok(path);
+        }
+    }
+
+    let executable = executable_dir()?;
+    if backend_path(&executable).exists() || frontend_path(&executable).exists() {
+        return Ok(executable);
+    }
+
+    Err(
+        "The HSL2 runtime was not found beside the launcher. Reinstall HSL2 or set HSL2_INSTALL_DIR."
+            .to_string(),
+    )
+}
+
+fn backend_path(root: &Path) -> PathBuf {
+    root.join("hsl-server").join("hsl-server.exe")
+}
+
+fn frontend_path(root: &Path) -> PathBuf {
+    root.join("hsl-app.exe")
+}
+
+fn backend_is_running() -> bool {
+    let address = SocketAddr::from(([127, 0, 0, 1], 5000));
+    TcpStream::connect_timeout(&address, Duration::from_millis(250)).is_ok()
+}
+
+fn hidden_command(path: &Path, root: &Path) -> Command {
+    let mut command = Command::new(path);
+    command
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
+fn start_backend(root: &Path) -> Result<bool, String> {
+    if backend_is_running() {
+        return Ok(false);
+    }
+
+    let path = backend_path(root);
+    if !path.exists() {
+        return Err(format!("Backend executable was not found: {}", path.display()));
+    }
+
+    hidden_command(&path, root)
+        .spawn()
+        .map_err(|error| format!("Unable to start the backend: {error}"))?;
+    Ok(true)
+}
+
+fn wait_for_backend(timeout: Duration) -> bool {
+    let started = Instant::now();
+    while started.elapsed() < timeout {
+        if backend_is_running() {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(350));
+    }
+    false
+}
+
+fn start_frontend(root: &Path) -> Result<(), String> {
+    let path = frontend_path(root);
+    if !path.exists() {
+        return Err(format!("Frontend executable was not found: {}", path.display()));
+    }
+
+    Command::new(&path)
+        .current_dir(root)
+        .spawn()
+        .map_err(|error| format!("Unable to start the frontend: {error}"))?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn autostart_enabled() -> bool {
+    RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+        .and_then(|key| key.get_value::<String, _>(AUTOSTART_NAME))
+        .is_ok()
+}
+
+#[cfg(not(windows))]
+fn autostart_enabled() -> bool {
+    false
+}
+
+#[cfg(windows)]
+fn update_autostart(enabled: bool) -> Result<(), String> {
+    let key = RegKey::predef(HKEY_CURRENT_USER)
+        .create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+        .map_err(|error| format!("Unable to open the current-user startup registry key: {error}"))?
+        .0;
+
+    if enabled {
+        let executable =
+            env::current_exe().map_err(|error| format!("Unable to locate the launcher: {error}"))?;
+        let value = format!("\"{}\" --backend-only", executable.display());
+        key.set_value(AUTOSTART_NAME, &value)
+            .map_err(|error| format!("Unable to create the startup entry: {error}"))
+    } else {
+        match key.delete_value(AUTOSTART_NAME) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!("Unable to remove the startup entry: {error}")),
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn update_autostart(_enabled: bool) -> Result<(), String> {
+    Err("Backend autostart is only supported on Windows.".to_string())
+}
+
+#[tauri::command]
+fn get_status() -> LauncherStatus {
+    let root = install_dir().unwrap_or_default();
+    LauncherStatus {
+        backend_available: backend_path(&root).exists(),
+        frontend_available: frontend_path(&root).exists(),
+        backend_running: backend_is_running(),
+        autostart_enabled: autostart_enabled(),
+        install_dir: root.display().to_string(),
+    }
+}
+
+#[tauri::command]
+async fn launch_mode(mode: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = install_dir()?;
+        match mode.as_str() {
+            "full" => {
+                start_backend(&root)?;
+                if !wait_for_backend(Duration::from_secs(35)) {
+                    return Err(
+                        "The backend started but did not become ready within 35 seconds. Check the logs directory."
+                            .to_string(),
+                    );
+                }
+                start_frontend(&root)?;
+                Ok("后端已就绪，前端已打开".to_string())
+            }
+            "frontend" => {
+                start_frontend(&root)?;
+                Ok("前端已打开".to_string())
+            }
+            "backend" => {
+                let started = start_backend(&root)?;
+                Ok(if started {
+                    "后端已在后台启动"
+                } else {
+                    "后端已经在运行"
+                }
+                .to_string())
+            }
+            _ => Err("Unknown launch mode.".to_string()),
+        }
+    })
+    .await
+    .map_err(|error| format!("Launch task failed: {error}"))?
+}
+
+#[tauri::command]
+fn set_backend_autostart(enabled: bool) -> Result<bool, String> {
+    update_autostart(enabled)?;
+    Ok(autostart_enabled())
+}
+
+fn run_backend_only() -> Result<(), String> {
+    let root = install_dir()?;
+    start_backend(&root)?;
+    Ok(())
+}
+
+fn main() {
+    if env::args().any(|argument| argument == "--backend-only") {
+        let _ = run_backend_only();
+        return;
+    }
+
+    tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![
+            get_status,
+            launch_mode,
+            set_backend_autostart
+        ])
+        .run(tauri::generate_context!())
+        .expect("HSL2 launcher failed");
+}

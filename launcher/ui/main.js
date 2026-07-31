@@ -1,0 +1,74 @@
+const invoke = window.__TAURI__.core.invoke;
+const modeButtons = [...document.querySelectorAll(".mode")];
+const launchButton = document.querySelector("#launch");
+const autostartButton = document.querySelector("#autostart");
+const message = document.querySelector("#message");
+const installDir = document.querySelector("#install-dir");
+const backendState = document.querySelector("#backend-state");
+let selectedMode = "full";
+let autostartEnabled = false;
+
+function showMessage(text, kind = "") {
+  message.textContent = text;
+  message.className = kind;
+}
+
+function renderAutostart(value) {
+  autostartEnabled = value;
+  autostartButton.classList.toggle("on", value);
+  autostartButton.setAttribute("aria-checked", String(value));
+}
+
+async function refreshStatus() {
+  try {
+    const status = await invoke("get_status");
+    installDir.textContent = status.install_dir || "未找到 HSL2 发布目录";
+    backendState.textContent = status.backend_running ? "后端运行中" : "后端未运行";
+    backendState.classList.toggle("online", status.backend_running);
+    renderAutostart(status.autostart_enabled);
+    modeButtons.find(button => button.dataset.mode === "frontend").disabled = !status.frontend_available;
+    if (!status.backend_available) {
+      showMessage("未找到后端程序，请将启动器放入 HSL2 发布目录", "error");
+    }
+  } catch (error) {
+    showMessage(String(error), "error");
+  }
+}
+
+modeButtons.forEach(button => button.addEventListener("click", () => {
+  if (button.disabled) return;
+  selectedMode = button.dataset.mode;
+  modeButtons.forEach(item => item.classList.toggle("selected", item === button));
+  showMessage(button.querySelector("strong").textContent + "已选择");
+}));
+
+autostartButton.addEventListener("click", async () => {
+  autostartButton.disabled = true;
+  try {
+    const enabled = await invoke("set_backend_autostart", { enabled: !autostartEnabled });
+    renderAutostart(enabled);
+    showMessage(enabled ? "已开启后端开机自启" : "已关闭后端开机自启", "success");
+  } catch (error) {
+    showMessage(String(error), "error");
+  } finally {
+    autostartButton.disabled = false;
+  }
+});
+
+launchButton.addEventListener("click", async () => {
+  launchButton.disabled = true;
+  launchButton.textContent = selectedMode === "full" ? "等待后端…" : "正在启动…";
+  showMessage("正在执行启动任务");
+  try {
+    const result = await invoke("launch_mode", { mode: selectedMode });
+    showMessage(result, "success");
+    await refreshStatus();
+  } catch (error) {
+    showMessage(String(error), "error");
+  } finally {
+    launchButton.disabled = false;
+    launchButton.textContent = "立即启动";
+  }
+});
+
+refreshStatus();

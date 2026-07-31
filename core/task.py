@@ -32,6 +32,11 @@ class BaseTask(ABC):
     started_at: float | None = None
     completed_at: float | None = None
     result: Any | None = None
+    title: str = "Background task"
+    current_step: str = ""
+    steps: list[dict[str, Any]] = field(default_factory=list)
+    metrics: dict[str, Any] = field(default_factory=dict)
+    _on_update: Callable[["BaseTask"], None] | None = field(default=None, repr=False)
     _started: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     _coroutine: asyncio.Task | None = field(default=None, repr=False)
 
@@ -58,7 +63,43 @@ class BaseTask(ABC):
             "started_at": self.started_at,
             "completed_at": self.completed_at,
             "result": self.result,
+            "title": self.title,
+            "current_step": self.current_step,
+            "steps": self.steps,
+            "metrics": self.metrics,
         }
+
+    def notify(self) -> None:
+        if self._on_update:
+            self._on_update(self)
+
+    def set_progress(self, progress: float, message: str = "") -> None:
+        self.progress = max(0.0, min(100.0, progress))
+        if message:
+            self.progress_message = message
+        self.notify()
+
+    def set_step(self, step_id: str, label: str, status: str = "running") -> None:
+        self.current_step = step_id
+        existing = next((step for step in self.steps if step["id"] == step_id), None)
+        if existing:
+            existing.update({"label": label, "status": status, "updated_at": time.time()})
+        else:
+            self.steps.append({"id": step_id, "label": label, "status": status, "updated_at": time.time()})
+        self.notify()
+
+    def complete_step(self, step_id: str, label: str | None = None) -> None:
+        step = next((item for item in self.steps if item["id"] == step_id), None)
+        if step:
+            step["status"] = "completed"
+            step["updated_at"] = time.time()
+            if label:
+                step["label"] = label
+        self.notify()
+
+    def set_metrics(self, **metrics: Any) -> None:
+        self.metrics.update({key: value for key, value in metrics.items() if value is not None})
+        self.notify()
 
 
 @dataclass
@@ -92,11 +133,6 @@ class CompositeTask(BaseTask):
     _execute_fn: Callable | None = field(default=None, repr=False)
     _cancel_fn: Callable | None = field(default=None, repr=False)
     _progress_callback: Callable | None = field(default=None, repr=False)
-
-    def set_progress(self, progress: float, message: str = ""):
-        self.progress = progress
-        if message:
-            self.progress_message = message
 
     def execute_sync(self) -> Any:
         if self._execute_fn:

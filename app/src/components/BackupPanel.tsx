@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { api } from "../lib/api";
-import type { BackupInfo, TaskInfo } from "../lib/types";
+import type { BackupInfo } from "../lib/types";
 import { useToastStore } from "../store/toast";
+import { useTaskStore } from "../store/tasks";
 import { showConfirm } from "./ConfirmDialog";
 
 interface Props {
@@ -14,6 +15,9 @@ export default function BackupPanel({ serverUuid }: Props) {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [restoring, setRestoring] = useState<string | null>(null);
+  const [createTaskId, setCreateTaskId] = useState<string | null>(null);
+  const [restoreTaskId, setRestoreTaskId] = useState<string | null>(null);
+  const tasks = useTaskStore((state) => state.tasks);
   const addToast = useToastStore((s) => s.addToast);
 
   async function fetchBackups() {
@@ -33,32 +37,38 @@ export default function BackupPanel({ serverUuid }: Props) {
     fetchBackups();
   }, [serverUuid]);
 
+  useEffect(() => {
+    if (!createTaskId) return;
+    const task = tasks.find((item) => item.task_id === createTaskId);
+    if (!task || !["completed", "failed", "cancelled"].includes(task.status)) return;
+    if (task.status === "completed") {
+      fetchBackups();
+      addToast("备份完成", "success");
+    } else {
+      addToast(task.error_message || "备份失败", "error");
+    }
+    setCreating(false);
+    setCreateTaskId(null);
+  }, [tasks, createTaskId]);
+
+  useEffect(() => {
+    if (!restoreTaskId) return;
+    const task = tasks.find((item) => item.task_id === restoreTaskId);
+    if (!task || !["completed", "failed", "cancelled"].includes(task.status)) return;
+    if (task.status === "completed") addToast("备份恢复成功", "success");
+    else addToast(task.error_message || "恢复失败", "error");
+    setRestoring(null);
+    setRestoreTaskId(null);
+  }, [tasks, restoreTaskId]);
+
   async function handleCreate() {
     setCreating(true);
     try {
       const resp = await api.post<{ task_id: string }>(`/api/servers/${serverUuid}/backups`);
       addToast("备份任务已创建", "info");
-      // Poll task until complete, then refresh
-      let attempts = 0;
-      while (attempts < 120) {
-        await new Promise((r) => setTimeout(r, 1000));
-        try {
-          const task = await api.get<TaskInfo>(`/api/tasks/${resp.task_id}`);
-          if (task.status === "completed") {
-            await fetchBackups();
-            addToast("备份完成", "success");
-            break;
-          }
-          if (task.status === "failed") {
-            addToast(task.error_message || "备份失败", "error");
-            break;
-          }
-        } catch { break; }
-        attempts++;
-      }
+      setCreateTaskId(resp.task_id);
     } catch (e: any) {
       addToast(e.message || "创建备份失败", "error", e.detail);
-    } finally {
       setCreating(false);
     }
   }
@@ -71,25 +81,9 @@ export default function BackupPanel({ serverUuid }: Props) {
         `/api/servers/${serverUuid}/backups/${encodeURIComponent(filename)}/restore`
       );
       addToast("恢复任务已创建", "info");
-      let attempts = 0;
-      while (attempts < 120) {
-        await new Promise((r) => setTimeout(r, 1000));
-        try {
-          const task = await api.get<TaskInfo>(`/api/tasks/${resp.task_id}`);
-          if (task.status === "completed") {
-            addToast("备份恢复成功", "success");
-            break;
-          }
-          if (task.status === "failed") {
-            addToast(task.error_message || "恢复失败", "error");
-            break;
-          }
-        } catch { break; }
-        attempts++;
-      }
+      setRestoreTaskId(resp.task_id);
     } catch (e: any) {
       addToast(e.message || "恢复失败", "error", e.detail);
-    } finally {
       setRestoring(null);
     }
   }

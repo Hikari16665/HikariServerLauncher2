@@ -1,0 +1,35 @@
+{
+  "$schema": "../../app/node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "HSL2 Launcher",
+  "version": "2.0.0",
+  "identifier": "com.hikari.hsl2.launcher",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "HSL2 Launcher",
+        "width": 720,
+        "height": 560,
+        "minWidth": 660,
+        "minHeight": 520,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": [
+      "icons/HSL2.png",
+      "icons/HSL2.ico"
+    ]
+  }
+}

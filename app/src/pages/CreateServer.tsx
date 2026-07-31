@@ -1,100 +1,36 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../lib/api";
 import type { VersionInfo, ServerType } from "../lib/types";
-import { useTaskStore } from "../store/tasks";
 import { useToastStore } from "../store/toast";
 
-const SERVER_TYPES: ServerType[] = [
-  "Vanilla", "Paper", "Forge", "Fabric", "NeoForge", "April",
-];
-
+const SERVER_TYPES: ServerType[] = ["Vanilla", "Paper", "Forge", "Fabric", "NeoForge", "April"];
 const NEEDS_MC_VERSION: ServerType[] = ["Forge", "NeoForge", "Paper"];
 
 function mapVersions(type: ServerType, data: any): VersionInfo[] {
-  switch (type) {
-    case "Vanilla":
-      return (data.releases || []).map((v: any) => ({
-        id: v.id, type: v.type || "release", release_time: v.release_time || "",
-      }));
-    case "Paper":
-      return (data.releases || []).map((v: any) => ({
-        id: v.id, type: v.type || "release", release_time: v.release_time || "",
-      }));
-    case "Forge":
-      return (data.mc_versions || data.forge_versions || []).map((v: string) => ({
-        id: v, type: "release", release_time: "",
-      }));
-    case "NeoForge":
-      return (data.mc_versions || data.neoforge_versions || []).map((v: string) => ({
-        id: v, type: "release", release_time: "",
-      }));
-    case "Fabric":
-      return (data.mc_versions || []).map((v: any) => ({
-        id: v.version || v, type: "release", release_time: "",
-      }));
-    case "April":
-      return (data.versions || []).map((v: any) => ({
-        id: v.name || v.version, type: "release", release_time: "",
-      }));
-    default:
-      return [];
-  }
+  if (type === "Vanilla" || type === "Paper") return (data.releases || []).map((item: any) => ({ id: item.id, type: item.type || "release", release_time: item.release_time || "" }));
+  if (type === "Forge") return (data.mc_versions || data.forge_versions || []).map((item: string) => ({ id: item, type: "release", release_time: "" }));
+  if (type === "NeoForge") return (data.mc_versions || data.neoforge_versions || []).map((item: string) => ({ id: item, type: "release", release_time: "" }));
+  if (type === "Fabric") return (data.mc_versions || []).map((item: any) => ({ id: item.version || item, type: "release", release_time: "" }));
+  return (data.versions || []).map((item: any) => ({ id: item.name || item.version, type: "release", release_time: "" }));
 }
 
-function mapSubVersions(type: ServerType, data: any): VersionInfo[] {
-  switch (type) {
-    case "Forge":
-      return (data.forge_versions || []).map((v: any) => ({
-        id: v.version, type: "release", release_time: data.mc_version || "",
-      }));
-    case "NeoForge":
-      return (data.neoforge_versions || []).map((v: any) => ({
-        id: typeof v === "string" ? v : v.version || v.name || "",
-        type: "release", release_time: data.mc_version || "",
-      }));
-    case "Paper":
-      return (data.sub_versions || []).map((sv: any) => ({
-        id: sv.key,
-        type: sv.support_status === "SUPPORTED" ? "release" : "experimental",
-        release_time: sv.support_end || "",
-      }));
-    default:
-      return [];
-  }
+function mapBuilds(type: ServerType, data: any): VersionInfo[] {
+  if (type === "Forge") return (data.forge_versions || []).map((item: any) => ({ id: item.version, type: "release", release_time: data.mc_version || "" }));
+  if (type === "NeoForge") return (data.neoforge_versions || []).map((item: any) => ({ id: typeof item === "string" ? item : item.version || item.name || "", type: "release", release_time: data.mc_version || "" }));
+  if (type === "Paper") return (data.sub_versions || []).map((item: any) => ({ id: item.key, type: item.support_status === "SUPPORTED" ? "release" : "experimental", release_time: item.support_end || "" }));
+  return [];
 }
-
-const labelStyle: React.CSSProperties = {
-  fontSize: 12,
-  fontWeight: 600,
-  color: "var(--text-secondary)",
-  display: "block",
-  marginBottom: 5,
-};
-
-const sectionStyle: React.CSSProperties = {
-  marginBottom: 18,
-};
-
-const versionGrid: React.CSSProperties = {
-  maxHeight: 180,
-  overflow: "auto",
-  background: "var(--bg-secondary)",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius-sm)",
-  padding: 4,
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))",
-  gap: 3,
-};
 
 export default function CreateServer() {
+  const navigate = useNavigate();
+  const addToast = useToastStore((state) => state.addToast);
   const [name, setName] = useState("");
   const [serverType, setServerType] = useState<ServerType>("Vanilla");
   const [version, setVersion] = useState("");
   const [mcVersion, setMcVersion] = useState("");
   const [versions, setVersions] = useState<VersionInfo[]>([]);
-  const [subVersions, setSubVersions] = useState<VersionInfo[]>([]);
+  const [builds, setBuilds] = useState<VersionInfo[]>([]);
   const [maxMemory, setMaxMemory] = useState(2048);
   const [javaVersion, setJavaVersion] = useState("21");
   const [recommendedJava, setRecommendedJava] = useState(21);
@@ -102,339 +38,74 @@ export default function CreateServer() {
   const [extraArgs, setExtraArgs] = useState("");
   const [filter, setFilter] = useState("");
   const [creating, setCreating] = useState(false);
-  const [error, setError] = useState("");
-  const [loadingSub, setLoadingSub] = useState(false);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+  const [loadingBuilds, setLoadingBuilds] = useState(false);
   const [stableOnly, setStableOnly] = useState(true);
-
-  const navigate = useNavigate();
-  const setTasks = useTaskStore((s) => s.setTasks);
-  const addToast = useToastStore((s) => s.addToast);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const typeKey = serverType.toLowerCase();
-    setMcVersion("");
-    setSubVersions([]);
-    setFilter("");
-
-    api
-      .get<any>(`/api/versions/${typeKey}`)
-      .then((data) => {
-        const mapped = mapVersions(serverType, data);
-        setVersions(mapped);
-        if (!NEEDS_MC_VERSION.includes(serverType) && mapped.length > 0) {
-          setVersion(mapped[0].id);
-        } else {
-          setVersion("");
-        }
-      })
-      .catch((e) => {
-        addToast("加载版本列表失败", "error", String(e));
-        setVersions([]);
-      });
-  }, [serverType]);
+    setVersion(""); setMcVersion(""); setBuilds([]); setFilter(""); setLoadingVersions(true);
+    api.get<any>(`/api/versions/${serverType.toLowerCase()}`)
+      .then((data) => { const items = mapVersions(serverType, data); setVersions(items); if (!NEEDS_MC_VERSION.includes(serverType) && items[0]) setVersion(items[0].id); })
+      .catch((reason) => { setVersions([]); addToast("加载版本列表失败", "error", String(reason)); })
+      .finally(() => setLoadingVersions(false));
+  }, [serverType, addToast]);
 
   useEffect(() => {
     if (!mcVersion || !NEEDS_MC_VERSION.includes(serverType)) return;
-    const typeKey = serverType.toLowerCase();
-    setLoadingSub(true);
-    setSubVersions([]);
-    setVersion("");
+    setBuilds([]); setVersion(""); setLoadingBuilds(true);
+    api.get<any>(`/api/versions/${serverType.toLowerCase()}?mc_version=${encodeURIComponent(mcVersion)}`)
+      .then((data) => { const items = mapBuilds(serverType, data); setBuilds(items); if (items[0]) setVersion(items[0].id); })
+      .catch((reason) => addToast("加载构建列表失败", "error", String(reason)))
+      .finally(() => setLoadingBuilds(false));
+  }, [mcVersion, serverType, addToast]);
 
-    api
-      .get<any>(`/api/versions/${typeKey}?mc_version=${encodeURIComponent(mcVersion)}`)
-      .then((data) => {
-        const mapped = mapSubVersions(serverType, data);
-        setSubVersions(mapped);
-        if (mapped.length > 0) setVersion(mapped[0].id);
-      })
-      .catch((e) => {
-        addToast("加载版本列表失败", "error", String(e));
-        setSubVersions([]);
-      })
-      .finally(() => setLoadingSub(false));
-  }, [mcVersion, serverType]);
-
-  // Auto-detect recommended Java version when MC version changes
   useEffect(() => {
-    const mcVer = NEEDS_MC_VERSION.includes(serverType) ? mcVersion : version;
-    if (!mcVer) return;
-    api
-      .get<{ recommended_java: number }>(
-        `/api/versions/recommended-java?mc_version=${encodeURIComponent(mcVer)}`
-      )
-      .then((data) => {
-        setRecommendedJava(data.recommended_java);
-        setJavaVersion(String(data.recommended_java));
-        setJavaWarning(false);
-      })
-      .catch(() => {});
+    const selected = NEEDS_MC_VERSION.includes(serverType) ? mcVersion : version;
+    if (!selected) return;
+    api.get<{ recommended_java: number }>(`/api/versions/recommended-java?mc_version=${encodeURIComponent(selected)}`)
+      .then((data) => { setRecommendedJava(data.recommended_java); setJavaVersion(String(data.recommended_java)); setJavaWarning(false); })
+      .catch(() => undefined);
   }, [mcVersion, version, serverType]);
 
-  async function handleCreate() {
+  const visibleVersions = useMemo(() => versions.filter((item) => item.id.toLowerCase().includes(filter.toLowerCase())).slice(0, 100), [versions, filter]);
+
+  async function createServer() {
     if (!name.trim()) { setError("请输入服务器名称"); return; }
-    if (!version) { setError("请选择版本"); return; }
-    if (NEEDS_MC_VERSION.includes(serverType) && !mcVersion) {
-      setError("请选择 Minecraft 版本"); return;
-    }
-    setCreating(true);
-    setError("");
-
-    let finalVersion: string;
-    if (serverType === "Paper") {
-      // Fetch builds and pick the appropriate one
-      try {
-        const buildsData = await api.get<{ builds: any[] }>(
-          `/api/versions/paper/builds?version=${encodeURIComponent(version)}`
-        );
-        const builds = buildsData.builds || [];
-        if (builds.length === 0) {
-          setError("该版本没有可用构建");
-          setCreating(false);
-          return;
-        }
-        // Filter by channel if stableOnly
-        const candidates = stableOnly
-          ? builds.filter((b: any) => b.channel === "STABLE" || b.channel === "RELEASE")
-          : builds;
-        if (candidates.length === 0) {
-          setError("该游戏版本没有 Paper 的稳定构建，可以尝试允许非稳定版本重新安装");
-          setCreating(false);
-          return;
-        }
-        // Pick latest by createdAt
-        const latest = candidates.reduce((a: any, b: any) =>
-          (a.created_at || "") > (b.created_at || "") ? a : b
-        );
-        finalVersion = latest.download_url;
-      } catch (e: any) {
-        setError(e.message || "获取 Paper 构建失败");
-        setCreating(false);
-        return;
-      }
-    } else if (NEEDS_MC_VERSION.includes(serverType) && mcVersion) {
-      finalVersion = `${mcVersion}|${version}`;
-    } else {
-      finalVersion = version;
-    }
-
+    if (!version || (NEEDS_MC_VERSION.includes(serverType) && !mcVersion)) { setError("请选择完整的服务端版本"); return; }
+    setCreating(true); setError("");
     try {
-      await api.post<{ task_id: string }>("/api/servers/create", {
-        name: name.trim(), server_type: serverType, version: finalVersion,
-        max_memory: maxMemory, java_version: javaVersion, extra_args: extraArgs,
-      });
-      const tasks = await api.get<{ tasks: any[] }>("/api/tasks");
-      setTasks(tasks.tasks);
-      navigate("/");
-    } catch (e) {
-      if (e instanceof ApiError) {
-        setError(e.message);
-        addToast(e.message, "error", e.detail);
-      } else {
-        setError("创建失败");
-        addToast("创建失败", "error", String(e));
+      let finalVersion = NEEDS_MC_VERSION.includes(serverType) ? `${mcVersion}|${version}` : version;
+      if (serverType === "Paper") {
+        const response = await api.get<{ builds: any[] }>(`/api/versions/paper/builds?version=${encodeURIComponent(version)}`);
+        const candidates = stableOnly ? (response.builds || []).filter((item) => item.channel === "STABLE" || item.channel === "RELEASE") : response.builds || [];
+        if (!candidates.length) throw new Error("该版本没有符合条件的 Paper 构建");
+        const latest = candidates.reduce((left, right) => (left.created_at || "") > (right.created_at || "") ? left : right);
+        finalVersion = latest.download_url;
       }
-    } finally {
-      setCreating(false);
-    }
+      await api.post("/api/servers/create", { name: name.trim(), server_type: serverType, version: finalVersion, mc_version: mcVersion || version, max_memory: maxMemory, java_version: javaVersion, extra_args: extraArgs });
+      navigate("/");
+    } catch (reason) {
+      const message = reason instanceof ApiError ? reason.message : reason instanceof Error ? reason.message : "创建失败";
+      setError(message); addToast(message, "error", reason instanceof ApiError ? reason.detail : String(reason));
+    } finally { setCreating(false); }
   }
 
-  const filteredVersions = filter
-    ? versions.filter((v) => v.id.includes(filter))
-    : versions;
-
-  const showSubSelector = NEEDS_MC_VERSION.includes(serverType) && mcVersion;
-
-  return (
-    <div style={{ padding: 24, maxWidth: 680, margin: "0 auto", width: "100%", height: "100%", overflow: "auto" }}>
-      <h1 style={{ fontSize: 20, fontWeight: 600, color: "var(--text-primary)", marginBottom: 24 }}>
-        安装服务器
-      </h1>
-
-      {/* Name & Type */}
-      <div style={sectionStyle}>
-        <div style={{ display: "flex", gap: 16 }}>
-          <div style={{ flex: 1 }}>
-            <label style={labelStyle}>服务器名称</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="My Server"
-              style={{ width: "100%" }}
-              autoFocus
-            />
-          </div>
-          <div style={{ width: 160 }}>
-            <label style={labelStyle}>类型</label>
-            <select
-              value={serverType}
-              onChange={(e) => setServerType(e.target.value as ServerType)}
-              style={{ width: "100%" }}
-            >
-              {SERVER_TYPES.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          </div>
-        </div>
+  return <section className="page-shell">
+    <header className="page-header"><div><span className="page-kicker">NEW INSTANCE</span><h1>新建服务器</h1><p>选择服务端类型与版本，HSL 会自动准备 Java 和运行文件。</p></div></header>
+    <div className="page-body installer-layout">
+      <div className="installer-workspace">
+        <article className="surface installer-section"><SectionTitle step="01" label="IDENTITY" title="基本信息" /><div className="form-grid form-grid-name"><label>服务器名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="My Server" autoFocus /></label><label>服务端类型<select value={serverType} onChange={(event) => setServerType(event.target.value as ServerType)}>{SERVER_TYPES.map((type) => <option key={type}>{type}</option>)}</select></label></div></article>
+        <article className="surface installer-section version-section"><div className="section-heading"><SectionTitle step="02" label="VERSION" title={NEEDS_MC_VERSION.includes(serverType) ? "选择 Minecraft 版本" : "选择服务端版本"} /><input className="version-search" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="筛选版本…" /></div>{loadingVersions ? <div className="inline-empty">正在加载版本…</div> : <div className="version-picker">{visibleVersions.map((item) => { const active = NEEDS_MC_VERSION.includes(serverType) ? mcVersion === item.id : version === item.id; return <button key={item.id} className={`version-choice ${active ? "active" : ""}`} onClick={() => NEEDS_MC_VERSION.includes(serverType) ? setMcVersion(item.id) : setVersion(item.id)}>{item.id}</button>; })}</div>}</article>
+        {NEEDS_MC_VERSION.includes(serverType) && mcVersion && <article className="surface installer-section"><div className="section-heading"><SectionTitle step="03" label="BUILD" title={`选择 ${serverType} 构建`} />{loadingBuilds && <span className="muted-text">加载中…</span>}</div><div className="version-picker compact">{builds.map((item) => <button key={item.id} className={`version-choice ${version === item.id ? "active" : ""}`} onClick={() => setVersion(item.id)}>{item.id}</button>)}</div>{serverType === "Paper" && <label className="check-row"><input type="checkbox" checked={!stableOnly} onChange={(event) => setStableOnly(!event.target.checked)} />允许使用非稳定构建</label>}</article>}
       </div>
-
-      {/* MC Version for Forge/NeoForge */}
-      {NEEDS_MC_VERSION.includes(serverType) && (
-        <div style={sectionStyle}>
-          <label style={labelStyle}>Minecraft 版本</label>
-          <input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="筛选版本..."
-            style={{ width: "100%", marginBottom: 8 }}
-          />
-          <div style={versionGrid}>
-            {filteredVersions.slice(0, 60).map((v) => (
-              <div
-                key={v.id}
-                onClick={() => { setMcVersion(v.id); setFilter(""); }}
-                style={{
-                  padding: "5px 10px", fontSize: 12, borderRadius: 3, cursor: "pointer",
-                  background: mcVersion === v.id ? "var(--accent)" : "transparent",
-                  color: mcVersion === v.id ? "#fff" : "var(--text-primary)",
-                  transition: "background 0.1s", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                }}
-              >
-                {v.id}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Sub-version for Forge/NeoForge */}
-      {showSubSelector && (
-        <div style={sectionStyle}>
-          <label style={labelStyle}>
-            {serverType} 版本{loadingSub && " — 加载中..."}
-          </label>
-          <div style={versionGrid}>
-            {subVersions.map((v) => (
-              <div
-                key={v.id}
-                onClick={() => setVersion(v.id)}
-                style={{
-                  padding: "5px 10px", fontSize: 12, borderRadius: 3, cursor: "pointer",
-                  background: version === v.id ? "var(--accent)" : "transparent",
-                  color: version === v.id ? "#fff" : "var(--text-primary)",
-                  transition: "background 0.1s", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                }}
-              >
-                {v.id}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Single version selector */}
-      {!NEEDS_MC_VERSION.includes(serverType) && (
-        <div style={sectionStyle}>
-          <label style={labelStyle}>版本</label>
-          <input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="筛选版本..."
-            style={{ width: "100%", marginBottom: 8 }}
-          />
-          <div style={versionGrid}>
-            {filteredVersions.slice(0, 60).map((v) => (
-              <div
-                key={v.id}
-                onClick={() => { setVersion(v.id); setFilter(""); }}
-                style={{
-                  padding: "5px 10px", fontSize: 12, borderRadius: 3, cursor: "pointer",
-                  background: version === v.id ? "var(--accent)" : "transparent",
-                  color: version === v.id ? "#fff" : "var(--text-primary)",
-                  transition: "background 0.1s", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                }}
-              >
-                {v.id}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Paper stability toggle */}
-      {serverType === "Paper" && showSubSelector && (
-        <div style={{ ...sectionStyle, marginBottom: 14 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, color: "var(--text-secondary)" }}>
-            <input
-              type="checkbox"
-              checked={!stableOnly}
-              onChange={(e) => setStableOnly(!e.target.checked)}
-              style={{ cursor: "pointer" }}
-            />
-            允许非稳定版本
-          </label>
-        </div>
-      )}
-
-      {/* Memory & Java */}
-      <div style={sectionStyle}>
-        <div style={{ display: "flex", gap: 16 }}>
-          <div style={{ flex: 1 }}>
-            <label style={labelStyle}>最大内存 (MB)</label>
-            <input
-              type="number"
-              value={maxMemory}
-              onChange={(e) => setMaxMemory(Number(e.target.value))}
-              style={{ width: "100%" }}
-            />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Java 版本</label>
-            <select
-              value={javaVersion}
-              onChange={(e) => {
-                const v = e.target.value;
-                setJavaVersion(v);
-                setJavaWarning(Number(v) !== recommendedJava);
-              }}
-              style={{ width: "100%" }}
-            >
-              {["8", "11", "17", "21", "25"].map((j) => (
-                <option key={j} value={j}>Java {j}</option>
-              ))}
-            </select>
-            {javaWarning && (
-              <p style={{ color: "var(--yellow)", fontSize: 11, marginTop: 4, marginBottom: 0, lineHeight: 1.4 }}>
-                使用非推荐版本Java可能会无法启动服务器，后果自负
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Extra args */}
-      <div style={sectionStyle}>
-        <label style={labelStyle}>额外 JVM 参数</label>
-        <input
-          value={extraArgs}
-          onChange={(e) => setExtraArgs(e.target.value)}
-          placeholder="-Xms512M -XX:+UseG1GC"
-          style={{ width: "100%" }}
-        />
-      </div>
-
-      {error && (
-        <p style={{ color: "var(--red)", fontSize: 13, marginBottom: 12 }}>{error}</p>
-      )}
-
-      <div style={{ display: "flex", gap: 12 }}>
-        <button className="btn-primary" onClick={handleCreate} disabled={creating}>
-          {creating ? "创建中..." : "安装服务器"}
-        </button>
-        <button className="btn-ghost" onClick={() => navigate("/")}>
-          取消
-        </button>
-      </div>
+      <aside className="installer-sidebar">
+        <article className="surface installer-section"><SectionTitle label="RUNTIME" title="运行参数" /><div className="form-stack"><label>最大内存（MB）<input type="number" min="512" step="512" value={maxMemory} onChange={(event) => setMaxMemory(Number(event.target.value))} /></label><label>Java 版本<select value={javaVersion} onChange={(event) => { const value = event.target.value; setJavaVersion(value); setJavaWarning(Number(value) !== recommendedJava); }}>{["8", "11", "17", "21", "25"].map((item) => <option key={item} value={item}>Java {item}</option>)}</select></label>{javaWarning && <p className="warning-text">当前不是推荐的 Java {recommendedJava}，服务端可能无法启动。</p>}<label>额外 JVM 参数<input value={extraArgs} onChange={(event) => setExtraArgs(event.target.value)} placeholder="-Xms512M -XX:+UseG1GC" /></label></div></article>
+        <article className="surface installer-summary"><span className="section-label">SUMMARY</span><dl><Summary label="名称" value={name || "未命名"} /><Summary label="类型" value={serverType} /><Summary label="版本" value={version || mcVersion || "未选择"} /><Summary label="Java" value={javaVersion} /><Summary label="内存" value={`${maxMemory} MB`} /></dl>{error && <p className="error-banner">{error}</p>}<div className="installer-actions"><button className="btn-primary" onClick={createServer} disabled={creating}>{creating ? "正在创建…" : "创建服务器"}</button><button className="btn-ghost" onClick={() => navigate("/")}>取消</button></div></article>
+      </aside>
     </div>
-  );
+  </section>;
 }
+
+function SectionTitle({ step, label, title }: { step?: string; label: string; title: string }) { return <div className="section-title"><span className="section-label">{step ? `${step} · ` : ""}{label}</span><h2>{title}</h2></div>; }
+function Summary({ label, value }: { label: string; value: string }) { return <div><dt>{label}</dt><dd>{value}</dd></div>; }

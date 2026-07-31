@@ -26,6 +26,7 @@ class TaskManager:
             self._executor: ThreadPoolExecutor = ThreadPoolExecutor(
                 max_workers=4, thread_name_prefix="task_manager_"
             )
+            self._listeners: set[Callable[[dict[str, Any]], None]] = set()
             self._initialized = True
 
     def _ensure_event_loop(self):
@@ -62,15 +63,22 @@ class TaskManager:
             task.status = TaskStatus.RUNNING
             task.started_at = time.time()
             task._started.set()
+            task.notify()
             result = task.execute_sync()
             task.result = result
             task.status = TaskStatus.COMPLETED
             task.completed_at = time.time()
             task.progress = 100.0
+            if task.current_step:
+                task.complete_step(task.current_step)
+            task.notify()
         except Exception as e:
             task.status = TaskStatus.FAILED
             task.error_message = str(e)
             task.completed_at = time.time()
+            if task.current_step:
+                task.set_step(task.current_step, task.progress_message or task.current_step, "failed")
+            task.notify()
 
     async def _run_task_async(self, task: BaseTask):
         try:
@@ -89,10 +97,26 @@ class TaskManager:
             task.status = TaskStatus.CANCELLED
             task.completed_at = time.time()
             await task.cancel()
+            task.notify()
         except Exception as e:
             task.status = TaskStatus.FAILED
             task.error_message = str(e)
             task.completed_at = time.time()
+            task.notify()
+
+    def subscribe(self, listener: Callable[[dict[str, Any]], None]) -> Callable[[], None]:
+        self._listeners.add(listener)
+        def unsubscribe() -> None:
+            self._listeners.discard(listener)
+        return unsubscribe
+
+    def _emit_task(self, task: BaseTask) -> None:
+        event = {"type": "task", "task": task.to_dict(), "timestamp": time.time()}
+        for listener in list(self._listeners):
+            try:
+                listener(event)
+            except Exception:
+                self._listeners.discard(listener)
 
     def create_operation_task(
         self, adapter_name: str, operation_name: str, **kwargs
@@ -114,8 +138,10 @@ class TaskManager:
             return False, None, error
 
         task = OperationTask(
-            task_id=str(uuid.uuid4()), adapter=adapter, operation=operation, params=kwargs
+            task_id=str(uuid.uuid4()), adapter=adapter, operation=operation, params=kwargs,
+            title=operation.description or operation.name,
         )
+        task._on_update = self._emit_task
         self._tasks[task.task_id] = task
         return True, task, ""
 
@@ -128,16 +154,16 @@ class TaskManager:
             task_id=str(uuid.uuid4()),
             _execute_fn=execute_fn,
             _cancel_fn=cancel_fn,
+            title="Create server",
         )
+        task._on_update = self._emit_task
         self._tasks[task.task_id] = task
         return task
 
     def set_task_progress(self, task_id: str, progress: float, message: str = ""):
         task = self._tasks.get(task_id)
         if task:
-            task.progress = progress
-            if message:
-                task.progress_message = message
+            task.set_progress(progress, message)
 
     async def start_task(self, task_id: str) -> tuple[bool, str]:
         task = self._tasks.get(task_id)
@@ -186,6 +212,7 @@ class TaskManager:
 
         task.status = TaskStatus.CANCELLED
         task.completed_at = time.time()
+        task.notify()
         return True, ""
 
     def list_tasks(self, status: TaskStatus | None = None) -> list[BaseTask]:

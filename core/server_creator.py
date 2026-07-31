@@ -1,6 +1,7 @@
 import os
 import platform
 import sys
+from urllib.parse import urlencode
 
 import httpx
 
@@ -16,6 +17,7 @@ def create_server_flow(
     server_type: ServerType,
     java_version: str = "21",
     version: str = "",
+    mc_version: str = "",
 ) -> dict:
     """
     Multi-step server creation flow for CompositeTask.
@@ -33,7 +35,8 @@ def create_server_flow(
     source = source_mgr.get()
 
     # Step 1: Ensure Java is installed
-    task.set_progress(5, f"Checking Java {java_version}...")
+    task.set_step("java", f"Prepare Java {java_version}")
+    task.set_progress(5, f"Checking Java {java_version}…")
 
     java_dir = os.path.join(
         sys._MEIPASS  # type: ignore
@@ -49,11 +52,12 @@ def create_server_flow(
             raise RuntimeError(
                 f"Java {java_version} is not installed and auto_download is disabled"
             )
-        task.set_progress(10, f"Downloading Java {java_version}...")
+        task.set_progress(10, f"Downloading Java {java_version}…")
         java_binary = _download_java(java_version, java_dir, source, task)
         task.set_progress(50, f"Java {java_version} installed")
     else:
         task.set_progress(30, f"Java {java_version} already installed")
+    task.complete_step("java")
 
     # Step 2: Download server.jar / installer
     needs_installer = server_type in (ServerType.FORGE, ServerType.NEOFORGE)
@@ -68,21 +72,31 @@ def create_server_flow(
         installer_path = os.path.join(server.path, "server.jar")
         server_jar_path = installer_path
 
-    download_url = _resolve_jar_url(server_type, version, source)
-    if not download_url:
-        raise RuntimeError(f"Could not resolve download URL for {server_type.value}")
-
-    task.set_progress(40, f"Downloading {server_type.value} server...")
-    _download_file(download_url, installer_path, task, start=40, end=60)
+    task.set_step("server-download", f"Download {server_type.value} {version or 'server'}")
+    task.set_progress(40, f"Downloading {server_type.value} server…")
+    if server_type == ServerType.FORGE:
+        candidates = _forge_installer_candidates(version, source)
+        if not candidates:
+            raise RuntimeError(f"Could not resolve a Forge installer for {version}")
+        _download_first_available(candidates, installer_path, task, start=40, end=60)
+    else:
+        download_url = _resolve_jar_url(server_type, version, source)
+        if not download_url:
+            raise RuntimeError(f"Could not resolve download URL for {server_type.value}")
+        _download_file(download_url, installer_path, task, start=40, end=60)
+    task.complete_step("server-download")
 
     if needs_installer:
+        task.set_step("installer", f"Install {server_type.value}")
         _run_installer(java_binary, installer_name, server.path, task)
         # Clean up installer jar
         if os.path.exists(installer_path):
             os.remove(installer_path)
+        task.complete_step("installer")
 
     # Step 3: Write eula.txt
-    task.set_progress(90, "Writing eula.txt...")
+    task.set_step("finalize", "Accept EULA and save metadata")
+    task.set_progress(90, "Accepting EULA and saving metadata…")
     eula_path = os.path.join(server.path, "eula.txt")
     with open(eula_path, "w") as f:
         f.write("eula=true")
@@ -105,8 +119,8 @@ def create_server_flow(
             elif server_type == ServerType.NEOFORGE:
                 meta["neoforge_version"] = parts[1]
         else:
-            if version:
-                meta["mc_version"] = version
+            if mc_version or version:
+                meta["mc_version"] = mc_version or version
             if server_type == ServerType.FORGE:
                 meta["forge_version"] = version
             elif server_type == ServerType.NEOFORGE:
@@ -115,7 +129,8 @@ def create_server_flow(
         with open(meta_file, "w", encoding="utf-8") as f:
             yaml.dump(meta, f, allow_unicode=True, default_flow_style=False)
 
-    task.set_progress(100, "Server created successfully")
+    task.complete_step("finalize")
+    task.set_progress(100, "Server is ready")
     return {
         "server_uuid": server_uuid,
         "server_type": server_type.value,
@@ -287,8 +302,14 @@ def _resolve_fabric_url(version: str, source) -> str | None:
 
 
 def _resolve_forge_installer_url(version: str, source) -> str | None:
+    candidates = _forge_installer_candidates(version, source)
+    return candidates[0] if candidates else None
+
+
+def _forge_installer_candidates(version: str, source) -> list[str]:
+    """Build mirror and official Forge installer URLs like the original launcher."""
     if not version:
-        return None
+        return []
 
     # version format: "mc_version" or "mc_version|forge_version"
     if "|" in version:
@@ -311,7 +332,20 @@ def _resolve_forge_installer_url(version: str, source) -> str | None:
             if resp.status_code == 200:
                 builds = resp.json()
                 if builds:
-                    latest = sorted(builds, key=lambda b: b.get("build", 0), reverse=True)[0]
+                    installable = [
+                        build
+                        for build in builds
+                        if any(
+                            item.get("category") == "installer"
+                            and item.get("format") == "jar"
+                            for item in (build.get("files") or [])
+                        )
+                    ]
+                    if not installable:
+                        return []
+                    latest = sorted(
+                        installable, key=lambda b: b.get("build", 0), reverse=True
+                    )[0]
                     forge_version = latest.get("version", "")
                     if "-" in forge_version:
                         parts = forge_version.split("-", 1)
@@ -322,11 +356,12 @@ def _resolve_forge_installer_url(version: str, source) -> str | None:
             pass
 
     if not fg_ver:
-        return None
+        return []
 
     full_version = f"{mc_ver}-{fg_ver}"
+    candidates: list[str] = []
 
-    # Try BMCLAPI first
+    # The original implementation sends these four query parameters to BMCLAPI.
     for fs in source.forge.list:
         if fs.type == "bmclapi" and fs.download:
             params = {
@@ -335,42 +370,21 @@ def _resolve_forge_installer_url(version: str, source) -> str | None:
                 "category": "installer",
                 "format": "jar",
             }
-            try:
-                resp = httpx.get(fs.download, params=params, follow_redirects=True)
-                if resp.status_code == 200:
-                    return str(resp.url)
-            except Exception:
-                pass
+            candidates.append(f"{fs.download}?{urlencode(params)}")
 
-    # Fallback: official Forge maven
-    maven_url = (
+    # Keep both the configured official endpoint and the canonical Maven endpoint.
+    for fs in source.forge.list:
+        if fs.type == "official" and fs.download:
+            candidates.append(
+                f"{fs.download.rstrip('/')}/{full_version}/"
+                f"forge-{full_version}-installer.jar"
+            )
+    candidates.append(
         f"https://maven.minecraftforge.net/net/minecraftforge/forge/"
         f"{full_version}/forge-{full_version}-installer.jar"
     )
-    try:
-        resp = httpx.head(maven_url, follow_redirects=True)
-        if resp.status_code == 200:
-            return maven_url
-    except Exception:
-        pass
 
-    # Last resort: try with mc_ver|full_version format on BMCLAPI
-    for fs in source.forge.list:
-        if fs.type == "bmclapi" and fs.download:
-            params = {
-                "mcversion": mc_ver,
-                "version": full_version,
-                "category": "installer",
-                "format": "jar",
-            }
-            try:
-                resp = httpx.get(fs.download, params=params, follow_redirects=True)
-                if resp.status_code == 200:
-                    return str(resp.url)
-            except Exception:
-                pass
-
-    return None
+    return list(dict.fromkeys(candidates))
 
 
 def _resolve_neoforge_installer_url(version: str, source) -> str | None:
@@ -425,7 +439,6 @@ def _run_installer(
         bufsize=1,
     )
 
-    success = False
     last_progress = 60.0
     if process.stdout is not None:
         for line in iter(process.stdout.readline, ""):
@@ -434,18 +447,22 @@ def _run_installer(
                 continue
             last_progress = min(last_progress + 0.3, 85)
             task.set_progress(last_progress, f"Installer: {line[:80]}")
-            if "The server installed successfully" in line:
-                success = True
-
-    try:
-        process.wait(timeout=30)
-    except subprocess.TimeoutExpired as e:
-        process.kill()
-        process.wait()
-        raise RuntimeError("Installer timed out") from e
-
-    if not success:
+    process.wait()
+    if process.returncode != 0:
         raise RuntimeError(f"Installer failed (exit code: {process.returncode})")
+
+    # Modern Forge emits run scripts/args files; legacy Forge emits a launch JAR.
+    produced_runtime = any(
+        os.path.exists(os.path.join(server_path, name))
+        for name in ("run.bat", "run.sh", "user_jvm_args.txt")
+    ) or any(
+        name.startswith("forge-")
+        and name.endswith(".jar")
+        and name != installer_jar_name
+        for name in os.listdir(server_path)
+    )
+    if not produced_runtime:
+        raise RuntimeError("Forge installer exited successfully but produced no server runtime")
 
     task.set_progress(85, "Installer completed successfully")
 
@@ -466,12 +483,49 @@ def _download_file(
         response.raise_for_status()
         total = int(response.headers.get("content-length", 0))
         downloaded = 0
+        started_at = __import__("time").monotonic()
+        last_report_at = started_at
         with open(destination, "wb") as f:
             for chunk in response.iter_bytes(chunk_size=65536):
                 f.write(chunk)
                 downloaded += len(chunk)
+                now = __import__("time").monotonic()
                 if total:
                     pct = start + (downloaded / total) * (end - start)
-                    task.set_progress(pct, "Downloading server.jar...")
+                    elapsed = max(now - started_at, 0.001)
+                    speed = downloaded / elapsed
+                    remaining = (total - downloaded) / speed if speed else None
+                    task.set_metrics(
+                        downloaded_bytes=downloaded,
+                        total_bytes=total,
+                        speed_bps=round(speed),
+                        eta_seconds=round(remaining) if remaining is not None else None,
+                    )
+                    if now - last_report_at > 0.2 or downloaded == total:
+                        task.set_progress(pct, "Downloading server files…")
+                        last_report_at = now
 
     return destination
+
+
+def _download_first_available(
+    urls: list[str],
+    destination: str,
+    task,
+    start: float = 0,
+    end: float = 100,
+) -> str:
+    errors: list[str] = []
+    for index, url in enumerate(urls, start=1):
+        try:
+            task.set_progress(start, f"Trying Forge download source {index}/{len(urls)}")
+            _download_file(url, destination, task, start=start, end=end)
+            with open(destination, "rb") as installer:
+                if installer.read(4) != b"PK\x03\x04":
+                    raise ValueError("downloaded response is not a valid installer JAR")
+            return destination
+        except (httpx.HTTPError, OSError, ValueError) as error:
+            errors.append(f"{url}: {error}")
+            if os.path.exists(destination):
+                os.remove(destination)
+    raise RuntimeError("All Forge installer sources failed: " + " | ".join(errors))

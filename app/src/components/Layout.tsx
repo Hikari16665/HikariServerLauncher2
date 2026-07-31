@@ -1,82 +1,45 @@
-import { Outlet, NavLink, useLocation } from "react-router-dom";
+import { NavLink, Outlet } from "react-router-dom";
 import TitleBar from "./TitleBar";
 import TaskFloating from "./TaskFloating";
 
-const NAV = [
-  { to: "/", label: "面板" },
-  { to: "/servers", label: "服务器" },
-  { to: "/install", label: "安装" },
-  { to: "/settings", label: "设置" },
-  { to: "/about", label: "关于" },
-];
+const navigation = [
+  ["/", "概览", "overview"],
+  ["/servers", "服务器", "servers"],
+  ["/install", "安装服务器", "install"],
+  ["/market", "市场", "market"],
+  ["/addons", "附加管理", "addons"],
+  ["/diagnostics", "服务器检测", "diagnostics"],
+  ["/settings", "设置", "settings"],
+  ["/about", "关于", "about"],
+] as const;
 
 export default function Layout() {
-  const location = useLocation();
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-      <TitleBar />
-
-      <nav
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 2,
-          padding: "0 16px",
-          height: 44,
-          background: "var(--bg-secondary)",
-          borderBottom: "1px solid var(--border)",
-          flexShrink: 0,
-        }}
-      >
-        <div
-          style={{
-            fontWeight: 700,
-            fontSize: 15,
-            color: "var(--accent)",
-            marginRight: 28,
-            letterSpacing: "-0.03em",
-            fontFamily: "var(--mono)",
-          }}
-        >
-          HSL
-        </div>
-
-        {NAV.map(({ to, label }) => {
-          const active = location.pathname === to;
-          return (
-            <NavLink
-              key={to}
-              to={to}
-              style={{
-                textDecoration: "none",
-                padding: "6px 14px",
-                fontSize: 13,
-                fontWeight: active ? 600 : 500,
-                color: active ? "var(--text-primary)" : "var(--text-secondary)",
-                borderRadius: "var(--radius-sm)",
-                background: active ? "var(--bg-tertiary)" : "transparent",
-                transition: "background 0.15s, color 0.15s",
-              }}
-            >
-              {label}
-            </NavLink>
-          );
-        })}
-      </nav>
-
-      <main
-        style={{
-          flex: 1,
-          overflow: "auto",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <Outlet />
-      </main>
-
-      <TaskFloating />
+  return <div className="app-shell">
+    <TitleBar />
+    <div className="app-frame">
+      <aside className="app-nav">
+        <div className="brand-block"><img src="/HSL.png" alt="HSL" /><div><strong>HSL2</strong><span>服务器管理工具</span></div></div>
+        <nav className="nav-list">
+          {navigation.map(([to, label, icon]) => <NavLink end={to === "/"} key={to} to={to} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}><NavIcon name={icon} /><span>{label}</span></NavLink>)}
+        </nav>
+        <div className="nav-footer"><span className="connection-dot" />后端已连接</div>
+      </aside>
+      <main className="app-content"><Outlet /></main>
     </div>
-  );
+    <TaskFloating />
+  </div>;
+}
+
+function NavIcon({ name }: { name: string }) {
+  const paths: Record<string, React.ReactNode> = {
+    overview: <><path d="M4 12h6V4H4zM14 20h6v-8h-6zM4 20h6v-4H4zM14 8h6V4h-6z" /></>,
+    servers: <><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/></>,
+    install: <><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19h16"/></>,
+    settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/></>,
+    about: <><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></>,
+    market: <><path d="M4 8h16l-1 12H5zM7 8a5 5 0 0 1 10 0"/><path d="M9 12v1M15 12v1"/></>,
+    addons: <><path d="M8 3h8v5h5v8h-5v5H8v-5H3V8h5z"/></>,
+    diagnostics: <><path d="M12 3 4 6v5c0 5 3.4 8.4 8 10 4.6-1.6 8-5 8-10V6z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></>,
+  };
+  return <svg viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }

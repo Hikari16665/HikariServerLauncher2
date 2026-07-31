@@ -48,7 +48,7 @@ HSL2/
 ├── build.sh                  # Cross-platform build script
 ├── build.bat                 # Windows build script
 ├── launcher.sh               # Linux runtime launcher
-├── launcher.bat              # Windows runtime launcher
+├── launcher/                 # Windows Tauri graphical launcher
 ├── requirements.txt          # Python dependencies
 └── pyinstaller.spec          # PyInstaller spec
 ```

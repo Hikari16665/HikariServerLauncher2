@@ -108,8 +108,22 @@ def _build_forge_like_command(server: Server, java_binary: str, lib_path: str) -
             if args_file:
                 log.info(f"通过目录扫描找到 args 文件: {args_file}")
 
-    if not args_file:
-        log.warning(f"未找到 {server.server_type.value} 的 args 文件，服务器可能无法启动")
+    legacy_jar = None
+    if not args_file and server.server_type == ServerType.FORGE:
+        # Forge 1.16 and older use a directly executable forge-*.jar instead of
+        # the modern @win_args.txt/@unix_args.txt launch layout.
+        jars = [
+            name
+            for name in os.listdir(server.path)
+            if name.startswith("forge-")
+            and name.endswith(".jar")
+            and "installer" not in name
+        ]
+        if jars:
+            legacy_jar = sorted(jars, reverse=True)[0]
+
+    if not args_file and not legacy_jar:
+        log.warning(f"未找到 {server.server_type.value} 的启动文件，服务器可能无法启动")
 
     # 3. Build command
     cmd = [java_binary, f"-Xmx{server.max_memory}M"]
@@ -117,6 +131,8 @@ def _build_forge_like_command(server: Server, java_binary: str, lib_path: str) -
         cmd.extend(user_jvm_args)
     if args_file:
         cmd.append("@" + args_file)
+    elif legacy_jar:
+        cmd.extend(["-jar", legacy_jar])
     if server.extra_args:
         try:
             cmd.extend(shlex.split(server.extra_args))

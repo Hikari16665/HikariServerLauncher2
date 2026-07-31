@@ -32,3 +32,6 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Launher
+launcher/src-tauri/target

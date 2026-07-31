@@ -1,0 +1,17 @@
+[package]
+name = "hsl-launcher"
+version = "2.0.0"
+description = "Hikari Server Launcher deployment launcher"
+authors = ["HSL2"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[build-dependencies]
+tauri-build = { version = "2.6.1", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2.11.1", features = [] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"

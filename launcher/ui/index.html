@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HSL2 启动器</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <img src="./HSL2.png" alt="HSL2">
+      <div>
+        <span>HIKARI SERVER LAUNCHER 2</span>
+        <h1>选择部署方式</h1>
+        <p>按当前使用场景启动 HSL2，各组件也可以独立运行。</p>
+      </div>
+      <i id="backend-state" class="state">正在检查</i>
+    </header>
+
+    <section class="modes" aria-label="部署方式">
+      <button class="mode selected" data-mode="full">
+        <b>推荐</b>
+        <span class="mode-icon">◫</span>
+        <strong>完整模式</strong>
+        <small>启动本机后端，等待服务就绪后打开桌面前端。</small>
+      </button>
+      <button class="mode" data-mode="frontend">
+        <span class="mode-icon">◇</span>
+        <strong>仅前端</strong>
+        <small>只打开管理界面，可连接另一台设备上的 HSL2 后端。</small>
+      </button>
+      <button class="mode" data-mode="backend">
+        <span class="mode-icon">⌁</span>
+        <strong>仅后端</strong>
+        <small>在后台运行 API 服务，不打开桌面管理界面。</small>
+      </button>
+    </section>
+
+    <section class="options">
+      <div>
+        <strong>后端开机自启</strong>
+        <small>登录 Windows 后自动在后台运行 HSL2 后端。</small>
+      </div>
+      <button id="autostart" class="switch" role="switch" aria-checked="false"><i></i></button>
+    </section>
+
+    <footer>
+      <div><span id="message">请选择一种启动方式</span><small id="install-dir"></small></div>
+      <button id="launch" class="launch">立即启动</button>
+    </footer>
+  </main>
+  <script src="./main.js"></script>
+</body>
+</html>
