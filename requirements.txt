@@ -12,3 +12,4 @@ flask-sock
 javaproperties
 flask-cors
 ruff
+remotezip

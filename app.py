@@ -58,6 +58,7 @@ from core.modrinth_market import (
     update_addon,
     version_details,
 )
+from core.mrpack_import import import_mrpack_flow, inspect_mrpack
 from core.tui import TUI
 from core.version_resolver import (
     get_april_versions,
@@ -1280,6 +1281,43 @@ def system_license():
 
 
 # ── Modrinth market and add-on management ─────────────────────────
+
+@app.route("/api/mrpack/inspect", methods=["POST"])
+def inspect_mrpack_endpoint():
+    if not auth.require_auth(request):
+        return jsonify({"error": auth.get_auth_error(request)}), 401
+    uploaded = request.files.get("file")
+    if not uploaded or not uploaded.filename.lower().endswith(".mrpack"):
+        return jsonify({"error": "请选择 .mrpack 文件"}), 400
+    try:
+        return jsonify(inspect_mrpack(uploaded))
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception as error:
+        logger.error(f"解析 mrpack 失败: {error}")
+        return jsonify({"error": f"解析 mrpack 失败: {error}"}), 500
+
+
+@app.route("/api/mrpack/import", methods=["POST"])
+def import_mrpack_endpoint():
+    if not auth.require_auth(request):
+        return jsonify({"error": auth.get_auth_error(request)}), 401
+    data = request.get_json() or {}
+    if not str(data.get("name", "")).strip():
+        return jsonify({"error": "请输入服务器名称"}), 400
+    session_id = str(data.get("session_id", ""))
+    selected_paths = data.get("selected_paths") or []
+    if not isinstance(selected_paths, list):
+        return jsonify({"error": "selected_paths 必须为数组"}), 400
+    metadata = {key: data.get(key) for key in ("name", "max_memory", "java_version", "extra_args")}
+    task = tm.create_composite_task(
+        execute_fn=lambda task, _: import_mrpack_flow(task, session_id, selected_paths, metadata, workspace)
+    )
+    task.title = f"导入模组包：{metadata['name']}"
+    task.set_step("queued", "等待导入", "pending")
+    tm.run_task_background(task.task_id)
+    return jsonify({"success": True, "task_id": task.task_id})
+
 
 def _market_server(server_uuid):
     server = workspace.get_server_by_uuid(server_uuid)

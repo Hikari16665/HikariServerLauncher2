@@ -10,14 +10,14 @@ interface Props {
   running?: boolean;
 }
 
-export default function Terminal({ serverUuid, running }: Props) {
+export default function Terminal({ serverUuid }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const bufRef = useRef("");
   const [encoding, setEncoding] = useState<"utf-8" | "gbk">("utf-8");
 
-  const { send, reconnect } = useWebSocket(
+  const { send } = useWebSocket(
     `/api/servers/${serverUuid}/terminal`,
     (raw: string) => {
       try {
@@ -36,15 +36,6 @@ export default function Terminal({ serverUuid, running }: Props) {
     true,
     true
   );
-
-  // Reconnect when server starts
-  const wasRunning = useRef(false);
-  useEffect(() => {
-    if (running && !wasRunning.current) {
-      reconnect();
-    }
-    wasRunning.current = !!running;
-  }, [running, reconnect]);
 
   useEffect(() => {
     const term = new XTerm({

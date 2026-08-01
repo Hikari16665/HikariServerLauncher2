@@ -19,6 +19,17 @@ export function useWebSocket(
   const connect = useCallback((isReconnect = false) => {
     if (!enabled) return;
 
+    if (retryRef.current) {
+      clearTimeout(retryRef.current);
+      retryRef.current = null;
+    }
+    const previous = wsRef.current;
+    if (previous) {
+      previous.onclose = null;
+      previous.onmessage = null;
+      previous.close();
+    }
+
     let wsUrl = apiUrl.replace(/^http/, "ws") + path + `?token=${token || ""}`;
     if (skipHistoryOnReconnect && isReconnect) {
       wsUrl += "&skip_history=1";
@@ -28,6 +39,7 @@ export function useWebSocket(
 
     ws.onmessage = (e) => onMessageRef.current(e.data as string);
     ws.onclose = () => {
+      if (wsRef.current !== ws) return;
       wsRef.current = null;
       if (enabled && !disposedRef.current) retryRef.current = setTimeout(() => connect(true), 1500);
     };
@@ -40,6 +52,10 @@ export function useWebSocket(
     const ws = connect(false);
     return () => {
       disposedRef.current = true;
+      if (ws) {
+        ws.onclose = null;
+        ws.onmessage = null;
+      }
       ws?.close();
       if (retryRef.current) clearTimeout(retryRef.current);
       wsRef.current = null;

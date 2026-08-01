@@ -139,7 +139,14 @@ def _build_forge_like_command(server: Server, java_binary: str, lib_path: str) -
         except ValueError:
             cmd.append(server.extra_args)
 
-    return cmd
+    return _with_nogui(cmd)
+
+
+def _with_nogui(command: list[str]) -> list[str]:
+    """Append Minecraft's standard headless launch argument exactly once."""
+    if not any(arg.lower() in {"nogui", "-nogui", "--nogui"} for arg in command):
+        command.append("nogui")
+    return command
 
 
 def _build_run_command(server: Server) -> list[str]:
@@ -161,7 +168,7 @@ def _build_run_command(server: Server) -> list[str]:
                 extra = shlex.split(server.extra_args)
             except ValueError:
                 extra = [server.extra_args]
-        return (
+        return _with_nogui(
             [
                 java_binary,
                 f"-Xmx{server.max_memory}M",
@@ -181,13 +188,13 @@ def _build_run_command(server: Server) -> list[str]:
 
     else:
         # Generic fallback
-        return [
+        return _with_nogui([
             java_binary,
             "-Dfile.encoding=utf-8",
             f"-Xmx{server.max_memory}M",
             "-jar",
             "server.jar",
-        ]
+        ])
 
 
 def export_launch_script(server: Server, fmt: str = "batch") -> str:
@@ -298,6 +305,7 @@ class ServerProcessManager:
     def __init__(self):
         if not hasattr(self, "_initialized"):
             self._running: dict[str, RunningServer] = {}
+            self._pending_listeners: dict[str, set] = {}
             self._initialized = True
 
     def get(self, server_uuid: str) -> RunningServer | None:
@@ -349,6 +357,7 @@ class ServerProcessManager:
             return False, str(e)
 
         rs = RunningServer(server.uuid, process, command)
+        rs._listeners.update(self._pending_listeners.pop(server.uuid, set()))
 
         # stdout reader thread (binary mode, decode per encoding)
         def _read_stdout():
@@ -491,12 +500,19 @@ class ServerProcessManager:
         rs = self._running.get(server_uuid)
         if rs:
             rs.add_listener(ws)
+        else:
+            self._pending_listeners.setdefault(server_uuid, set()).add(ws)
 
     def remove_listener(self, server_uuid: str, ws):
         """Remove a WebSocket listener."""
         rs = self._running.get(server_uuid)
         if rs:
             rs.remove_listener(ws)
+        pending = self._pending_listeners.get(server_uuid)
+        if pending:
+            pending.discard(ws)
+            if not pending:
+                self._pending_listeners.pop(server_uuid, None)
 
     def _cleanup(self, server_uuid: str):
         """Clean up a stopped server."""

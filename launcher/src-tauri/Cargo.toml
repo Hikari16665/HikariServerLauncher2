@@ -11,6 +11,7 @@ tauri-build = { version = "2.6.1", features = [] }
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
 tauri = { version = "2.11.1", features = [] }
 
 [target.'cfg(windows)'.dependencies]

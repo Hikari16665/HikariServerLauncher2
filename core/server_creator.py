@@ -118,6 +118,8 @@ def create_server_flow(
                 meta["forge_version"] = parts[1]
             elif server_type == ServerType.NEOFORGE:
                 meta["neoforge_version"] = parts[1]
+            elif server_type == ServerType.FABRIC:
+                meta["fabric_loader_version"] = parts[1]
         else:
             if mc_version or version:
                 meta["mc_version"] = mc_version or version
@@ -266,6 +268,9 @@ def _resolve_paper_url(version: str, source) -> str | None:
 
 
 def _resolve_fabric_url(version: str, source) -> str | None:
+    loader_version = ""
+    if "|" in version:
+        version, loader_version = version.split("|", 1)
     if not version:
         # get latest stable
         try:
@@ -281,19 +286,20 @@ def _resolve_fabric_url(version: str, source) -> str | None:
         except Exception:
             pass
 
-    try:
-        loader_resp = httpx.get(
-            "https://meta.fabricmc.net/v2/versions/loader",
-            follow_redirects=True,
-        )
-        if loader_resp.status_code != 200:
+    if not loader_version:
+        try:
+            loader_resp = httpx.get(
+                "https://meta.fabricmc.net/v2/versions/loader",
+                follow_redirects=True,
+            )
+            if loader_resp.status_code != 200:
+                return None
+            loader_list = loader_resp.json()
+            if not loader_list:
+                return None
+            loader_version = loader_list[0]["version"]
+        except Exception:
             return None
-        loader_list = loader_resp.json()
-        if not loader_list:
-            return None
-        loader_version = loader_list[0]["version"]
-    except Exception:
-        return None
 
     for fs in source.fabric.list:
         if fs.type == "official":

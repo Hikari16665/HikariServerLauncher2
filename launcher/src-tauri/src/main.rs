@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     env,
     net::{SocketAddr, TcpStream},
@@ -26,6 +26,29 @@ struct LauncherStatus {
     backend_running: bool,
     autostart_enabled: bool,
     install_dir: String,
+    admin_key: Option<String>,
+}
+
+#[derive(Serialize)]
+struct LaunchResult {
+    message: String,
+    admin_key: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct BackendConfig {
+    auth: Option<AuthConfig>,
+}
+
+#[derive(Deserialize)]
+struct AuthConfig {
+    #[serde(
+        rename = "admin-key",
+        alias = "admin_key",
+        alias = "api-key",
+        alias = "api_key"
+    )]
+    admin_key: Option<String>,
 }
 
 fn executable_dir() -> Result<PathBuf, String> {
@@ -63,6 +86,23 @@ fn frontend_path(root: &Path) -> PathBuf {
     root.join("hsl-app.exe")
 }
 
+fn read_admin_key(root: &Path) -> Option<String> {
+    let candidates = [
+        root.join("config.yml"),
+        root.join("hsl-server").join("config.yml"),
+    ];
+    candidates.into_iter().find_map(|path| {
+        let content = std::fs::read_to_string(path).ok()?;
+        let config: BackendConfig = serde_yaml::from_str(&content).ok()?;
+        let key = config.auth?.admin_key?.trim().to_string();
+        if key.is_empty() || key.eq_ignore_ascii_case("PLACEHOLDER") {
+            None
+        } else {
+            Some(key)
+        }
+    })
+}
+
 fn backend_is_running() -> bool {
     let address = SocketAddr::from(([127, 0, 0, 1], 5000));
     TcpStream::connect_timeout(&address, Duration::from_millis(250)).is_ok()
@@ -87,7 +127,10 @@ fn start_backend(root: &Path) -> Result<bool, String> {
 
     let path = backend_path(root);
     if !path.exists() {
-        return Err(format!("Backend executable was not found: {}", path.display()));
+        return Err(format!(
+            "Backend executable was not found: {}",
+            path.display()
+        ));
     }
 
     hidden_command(&path, root)
@@ -110,7 +153,10 @@ fn wait_for_backend(timeout: Duration) -> bool {
 fn start_frontend(root: &Path) -> Result<(), String> {
     let path = frontend_path(root);
     if !path.exists() {
-        return Err(format!("Frontend executable was not found: {}", path.display()));
+        return Err(format!(
+            "Frontend executable was not found: {}",
+            path.display()
+        ));
     }
 
     Command::new(&path)
@@ -141,8 +187,8 @@ fn update_autostart(enabled: bool) -> Result<(), String> {
         .0;
 
     if enabled {
-        let executable =
-            env::current_exe().map_err(|error| format!("Unable to locate the launcher: {error}"))?;
+        let executable = env::current_exe()
+            .map_err(|error| format!("Unable to locate the launcher: {error}"))?;
         let value = format!("\"{}\" --backend-only", executable.display());
         key.set_value(AUTOSTART_NAME, &value)
             .map_err(|error| format!("Unable to create the startup entry: {error}"))
@@ -169,11 +215,12 @@ fn get_status() -> LauncherStatus {
         backend_running: backend_is_running(),
         autostart_enabled: autostart_enabled(),
         install_dir: root.display().to_string(),
+        admin_key: read_admin_key(&root),
     }
 }
 
 #[tauri::command]
-async fn launch_mode(mode: String) -> Result<String, String> {
+async fn launch_mode(mode: String) -> Result<LaunchResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let root = install_dir()?;
         match mode.as_str() {
@@ -186,20 +233,23 @@ async fn launch_mode(mode: String) -> Result<String, String> {
                     );
                 }
                 start_frontend(&root)?;
-                Ok("后端已就绪，前端已打开".to_string())
+                Ok(LaunchResult { message: "后端已就绪，前端已打开".to_string(), admin_key: read_admin_key(&root) })
             }
             "frontend" => {
                 start_frontend(&root)?;
-                Ok("前端已打开".to_string())
+                Ok(LaunchResult { message: "前端已打开".to_string(), admin_key: read_admin_key(&root) })
             }
             "backend" => {
                 let started = start_backend(&root)?;
-                Ok(if started {
+                let message = if started {
                     "后端已在后台启动"
                 } else {
                     "后端已经在运行"
+                };
+                if started && !wait_for_backend(Duration::from_secs(35)) {
+                    return Err("The backend started but did not become ready within 35 seconds. Check the logs directory.".to_string());
                 }
-                .to_string())
+                Ok(LaunchResult { message: message.to_string(), admin_key: read_admin_key(&root) })
             }
             _ => Err("Unknown launch mode.".to_string()),
         }

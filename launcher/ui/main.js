@@ -5,6 +5,9 @@ const autostartButton = document.querySelector("#autostart");
 const message = document.querySelector("#message");
 const installDir = document.querySelector("#install-dir");
 const backendState = document.querySelector("#backend-state");
+const keyNotice = document.querySelector("#key-notice");
+const adminKey = document.querySelector("#admin-key");
+const copyKeyButton = document.querySelector("#copy-key");
 let selectedMode = "full";
 let autostartEnabled = false;
 
@@ -19,6 +22,22 @@ function renderAutostart(value) {
   autostartButton.setAttribute("aria-checked", String(value));
 }
 
+function showAdminKey(value) {
+  if (!value) return;
+  adminKey.textContent = value;
+  keyNotice.hidden = false;
+}
+
+copyKeyButton.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(adminKey.textContent);
+    copyKeyButton.textContent = "已复制";
+    setTimeout(() => { copyKeyButton.textContent = "复制"; }, 1600);
+  } catch {
+    showMessage("无法复制密钥，请手动选择复制", "error");
+  }
+});
+
 async function refreshStatus() {
   try {
     const status = await invoke("get_status");
@@ -26,6 +45,7 @@ async function refreshStatus() {
     backendState.textContent = status.backend_running ? "后端运行中" : "后端未运行";
     backendState.classList.toggle("online", status.backend_running);
     renderAutostart(status.autostart_enabled);
+    showAdminKey(status.admin_key);
     modeButtons.find(button => button.dataset.mode === "frontend").disabled = !status.frontend_available;
     if (!status.backend_available) {
       showMessage("未找到后端程序，请将启动器放入 HSL2 发布目录", "error");
@@ -61,7 +81,8 @@ launchButton.addEventListener("click", async () => {
   showMessage("正在执行启动任务");
   try {
     const result = await invoke("launch_mode", { mode: selectedMode });
-    showMessage(result, "success");
+    showMessage(result.message, "success");
+    showAdminKey(result.admin_key);
     await refreshStatus();
   } catch (error) {
     showMessage(String(error), "error");

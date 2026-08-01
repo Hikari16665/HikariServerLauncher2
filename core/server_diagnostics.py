@@ -7,6 +7,7 @@ selected server directory, so a check is fast and deterministic.
 from __future__ import annotations
 
 import json
+import io
 import os
 import re
 import time
@@ -33,10 +34,12 @@ BUILTIN_DEPENDENCIES = {
 class AddonMetadata:
     filename: str
     name: str
-    kind: str
+    kinds: set[str] = field(default_factory=set)
     addon_ids: set[str] = field(default_factory=set)
-    dependencies: set[str] = field(default_factory=set)
-    minecraft_constraint: Any = None
+    embedded_ids: set[str] = field(default_factory=set)
+    dependencies: dict[str, set[str]] = field(default_factory=dict)
+    minecraft_constraints: dict[str, Any] = field(default_factory=dict)
+    embedded_components: list[str] = field(default_factory=list)
     parse_error: str | None = None
 
 
@@ -136,6 +139,7 @@ def _check_addons(root: Path, server: Server, add) -> int:
     installed_ids: set[str] = set()
     for item in metadata:
         installed_ids.update(value.lower() for value in item.addon_ids)
+        installed_ids.update(value.lower() for value in item.embedded_ids)
         installed_ids.add(Path(item.filename).stem.lower())
 
     expected = {
@@ -150,56 +154,96 @@ def _check_addons(root: Path, server: Server, add) -> int:
         if item.parse_error:
             add("warning", "invalid_addon", f"无法解析附加：{item.name}", item.parse_error, file=f"{folder}/{item.filename}")
             continue
-        if expected and item.kind not in expected:
-            add("warning", "wrong_addon_loader", f"附加类型不兼容：{item.name}", f"该文件被识别为 {_kind_label(item.kind)}，但当前服务器类型为 {server.server_type.value}。", file=f"{folder}/{item.filename}", details={"detected_loader": item.kind, "server_type": server.server_type.value})
-        if game_version and item.minecraft_constraint and not _version_matches(game_version, item.minecraft_constraint):
-            add("warning", "incompatible_minecraft_version", f"Minecraft 版本可能不兼容：{item.name}", f"该附加声明的 Minecraft 版本范围为 {item.minecraft_constraint}，当前服务器为 {game_version}。", file=f"{folder}/{item.filename}", details={"required": item.minecraft_constraint, "current": game_version})
-        missing = sorted(dep for dep in item.dependencies if dep.lower() not in installed_ids and dep.lower() not in BUILTIN_DEPENDENCIES)
+        active_kinds = item.kinds & expected if expected else item.kinds
+        if expected and not active_kinds:
+            detected = "、".join(_kind_label(kind) for kind in sorted(item.kinds)) or "未知附加"
+            add("warning", "wrong_addon_loader", f"附加类型不兼容：{item.name}", f"该文件可用于 {detected}，但当前服务器类型为 {server.server_type.value}。", file=f"{folder}/{item.filename}", details={"detected_loaders": sorted(item.kinds), "server_type": server.server_type.value})
+        active_kind = next(iter(active_kinds), None)
+        constraint = item.minecraft_constraints.get(active_kind) if active_kind else None
+        if game_version and constraint and not _version_matches(game_version, constraint):
+            add("warning", "incompatible_minecraft_version", f"Minecraft 版本可能不兼容：{item.name}", f"该附加声明的 Minecraft 版本范围为 {constraint}，当前服务器为 {game_version}。", file=f"{folder}/{item.filename}", details={"required": constraint, "current": game_version, "loader": active_kind})
+        active_dependencies: set[str] = set()
+        for kind in active_kinds:
+            active_dependencies.update(item.dependencies.get(kind, set()))
+        missing = sorted(dep for dep in active_dependencies if dep.lower() not in installed_ids and dep.lower() not in BUILTIN_DEPENDENCIES)
         if missing:
-            add("warning", "missing_addon_dependencies", f"缺少前置：{item.name}", f"未找到必需前置：{', '.join(missing)}。", file=f"{folder}/{item.filename}", details={"missing": missing})
+            embedded_note = f"（已识别 {len(item.embedded_components)} 个 Jar-in-Jar 组件）" if item.embedded_components else ""
+            add("warning", "missing_addon_dependencies", f"缺少前置：{item.name}", f"未找到必需前置：{', '.join(missing)}。{embedded_note}", file=f"{folder}/{item.filename}", details={"missing": missing, "embedded_components": item.embedded_components})
     return len(metadata)
 
 
 def _inspect_addon(path: Path) -> AddonMetadata:
-    item = AddonMetadata(path.name, path.stem, "unknown")
+    item = AddonMetadata(path.name, path.stem)
     try:
         with zipfile.ZipFile(path) as jar:
-            names = set(jar.namelist())
-            if "fabric.mod.json" in names:
-                data = json.loads(jar.read("fabric.mod.json"))
-                item.kind = "fabric"; item.name = str(data.get("name") or data.get("id") or path.stem)
-                if data.get("id"): item.addon_ids.add(str(data["id"]))
-                depends = data.get("depends") or {}
-                if isinstance(depends, dict):
-                    item.dependencies.update(str(key) for key in depends if key not in {"minecraft", "java", "fabricloader"})
-                    item.minecraft_constraint = depends.get("minecraft")
-            elif "META-INF/neoforge.mods.toml" in names or "META-INF/mods.toml" in names:
-                entry = "META-INF/neoforge.mods.toml" if "META-INF/neoforge.mods.toml" in names else "META-INF/mods.toml"
-                data = tomllib.loads(jar.read(entry).decode("utf-8", "replace"))
-                item.kind = "neoforge" if "neoforge" in entry else "forge"
-                mods = data.get("mods") or []
-                if mods:
-                    item.name = str(mods[0].get("displayName") or mods[0].get("modId") or path.stem)
-                    item.addon_ids.update(str(mod.get("modId")) for mod in mods if mod.get("modId"))
-                for dependencies in (data.get("dependencies") or {}).values():
-                    for dependency in dependencies if isinstance(dependencies, list) else []:
-                        dep_id = str(dependency.get("modId") or "")
-                        if not dep_id: continue
-                        if dep_id == "minecraft": item.minecraft_constraint = dependency.get("versionRange")
-                        elif dependency.get("mandatory", True): item.dependencies.add(dep_id)
-            elif "paper-plugin.yml" in names or "plugin.yml" in names:
-                entry = "paper-plugin.yml" if "paper-plugin.yml" in names else "plugin.yml"
-                data = yaml.safe_load(jar.read(entry)) or {}
-                item.kind = "plugin"; item.name = str(data.get("name") or path.stem)
-                item.addon_ids.add(str(data.get("name") or path.stem))
-                depends = data.get("depend") or []
-                if isinstance(depends, str): depends = [depends]
-                item.dependencies.update(str(value) for value in depends)
-            else:
+            _inspect_jar_archive(jar, item, embedded=False, depth=0)
+            if not item.kinds:
                 item.parse_error = "JAR 中没有找到 Fabric、Forge/NeoForge 或 Paper/Bukkit 的元数据文件。"
     except (OSError, zipfile.BadZipFile, json.JSONDecodeError, tomllib.TOMLDecodeError, yaml.YAMLError) as error:
         item.parse_error = f"JAR 文件损坏或元数据格式无效：{error}"
     return item
+
+
+def _inspect_jar_archive(jar: zipfile.ZipFile, item: AddonMetadata, *, embedded: bool, depth: int) -> None:
+    if depth > 4:
+        return
+    names = set(jar.namelist())
+    discovered_ids: set[str] = set()
+
+    if "fabric.mod.json" in names:
+        data = json.loads(jar.read("fabric.mod.json"))
+        addon_id = str(data.get("id") or "")
+        if addon_id: discovered_ids.add(addon_id)
+        if not embedded:
+            item.kinds.add("fabric"); item.name = str(data.get("name") or addon_id or item.name)
+            item.addon_ids.update(discovered_ids)
+            depends = data.get("depends") or {}
+            if isinstance(depends, dict):
+                item.dependencies.setdefault("fabric", set()).update(str(key) for key in depends if key not in {"minecraft", "java", "fabricloader"})
+                item.minecraft_constraints["fabric"] = depends.get("minecraft")
+
+    for entry, kind in (("META-INF/mods.toml", "forge"), ("META-INF/neoforge.mods.toml", "neoforge")):
+        if entry not in names:
+            continue
+        data = tomllib.loads(jar.read(entry).decode("utf-8", "replace"))
+        mods = data.get("mods") or []
+        forge_ids = {str(mod.get("modId")) for mod in mods if mod.get("modId")}
+        discovered_ids.update(forge_ids)
+        if not embedded:
+            item.kinds.add(kind); item.addon_ids.update(forge_ids)
+            if mods: item.name = str(mods[0].get("displayName") or mods[0].get("modId") or item.name)
+            dependencies = item.dependencies.setdefault(kind, set())
+            for entries in (data.get("dependencies") or {}).values():
+                for dependency in entries if isinstance(entries, list) else []:
+                    dep_id = str(dependency.get("modId") or "")
+                    if not dep_id: continue
+                    if dep_id == "minecraft": item.minecraft_constraints[kind] = dependency.get("versionRange")
+                    elif dependency.get("mandatory", True): dependencies.add(dep_id)
+
+    for entry in ("paper-plugin.yml", "plugin.yml"):
+        if entry not in names:
+            continue
+        data = yaml.safe_load(jar.read(entry)) or {}
+        plugin_id = str(data.get("name") or "")
+        if plugin_id: discovered_ids.add(plugin_id)
+        if not embedded:
+            item.kinds.add("plugin"); item.name = plugin_id or item.name
+            item.addon_ids.update(discovered_ids)
+            depends = data.get("depend") or []
+            if isinstance(depends, str): depends = [depends]
+            item.dependencies.setdefault("plugin", set()).update(str(value) for value in depends)
+
+    if embedded:
+        item.embedded_ids.update(discovered_ids)
+        item.embedded_components.extend(sorted(discovered_ids))
+
+    embedded_paths = [name for name in names if name.lower().endswith(".jar") and (name.startswith("META-INF/jars/") or name.startswith("META-INF/jarjar/") or name.startswith("META-INF/libraries/"))]
+    for embedded_path in embedded_paths:
+        try:
+            with zipfile.ZipFile(io.BytesIO(jar.read(embedded_path))) as nested:
+                _inspect_jar_archive(nested, item, embedded=True, depth=depth + 1)
+        except (OSError, zipfile.BadZipFile):
+            continue
 
 
 def _minecraft_version(root: Path) -> str:

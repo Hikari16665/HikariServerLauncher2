@@ -1,0 +1,27 @@
+# 追加到 https://hsl-config.oss-cn-beijing.aliyuncs.com/incompatible.txt
+# 这些规则不会从本地读取；此文件仅作为 OSS 更新源稿。
+
+id=chat-heads game=* desc=客户端聊天头像显示模组，专用服务器不需要安装
+id=chatanimation game=* desc=客户端聊天消息动画模组，专用服务器没有可渲染的聊天界面
+id=cherished-worlds game=* desc=客户端单人世界收藏与选择界面模组，专用服务器无法使用
+id=fast-ip-ping game=* desc=客户端服务器列表延迟检测优化模组，专用服务器不需要安装
+id=chloride game=* desc=Sodium 的客户端设置与兼容性扩展，专用服务器不需要安装
+id=customskinloader game=* desc=客户端自定义皮肤加载模组，专用服务器不需要安装
+id=neat game=* desc=客户端实体血条显示模组，专用服务器没有可渲染界面
+id=chat-tools game=* desc=客户端聊天辅助工具，专用服务器不需要安装
+id=durability-tooltip game=* desc=客户端耐久度提示界面模组，专用服务器不需要安装
+id=appleskin game=* desc=客户端饥饿值与食物信息显示模组；服务端虽可选安装，但没有必要随服务端导入
+id=jecharacters* game=* desc=Just Enough Characters 客户端拼音搜索模组，专用服务器没有搜索界面
+
+# 第二批客户端界面、材质与操作模组
+id=cit-resewn game=* desc=客户端自定义物品纹理支持模组，专用服务器不负责资源包渲染
+id=3dskinlayers game=* desc=客户端立体皮肤层渲染模组，专用服务器不需要安装
+id=better-selection game=* desc=客户端方块选择轮廓改进模组，专用服务器没有可渲染界面
+id=inventory-hud+-by-soulspeed game=* desc=客户端物品栏 HUD 显示模组，专用服务器没有可渲染界面
+id=xaero-zoomout game=* desc=客户端地图缩放扩展，专用服务器不需要安装
+id=fogoverrides game=* desc=客户端雾效覆盖模组；服务端虽可选安装，但没有必要随服务端导入
+id=enchantment-descriptions game=* desc=客户端附魔说明界面模组；服务端虽可选安装，但没有必要随服务端导入
+id=programmer-art-fix game=* desc=客户端程序员艺术资源修复包，专用服务器不负责资源渲染
+id=smooth-scroll game=* desc=客户端界面平滑滚动模组，专用服务器没有可滚动界面
+id=fast-scrolling game=* desc=客户端列表快速滚动模组，专用服务器没有可滚动界面
+id=hide-key-binding game=* desc=客户端按键绑定界面整理模组，专用服务器没有按键设置界面

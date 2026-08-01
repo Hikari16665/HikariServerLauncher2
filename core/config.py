@@ -25,6 +25,7 @@ class ConfigKey(Enum):
     SERVER_JAVA_AUTO_DOWNLOAD = "server.java.auto_download"
     BACKUP_DIR = "backup.dir"
     TUI_ENABLED = "tui.enabled"
+    MODPACK_INCOMPATIBLE_LIST_URL = "modpack.incompatible-list-url"
 
     def get(self) -> Any:
         return ConfigManager().get(self.value)

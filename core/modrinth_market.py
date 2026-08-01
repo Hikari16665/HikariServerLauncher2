@@ -62,8 +62,10 @@ def project_versions(server: Server, project_id: str) -> list[dict[str, Any]]:
 
 def version_details(server: Server, version_id: str) -> dict[str, Any]:
     version = _normalize_version(_get(f"/version/{version_id}"))
-    dependencies = _dependency_tree(server, version, {version.get("project_id")})
+    installed = _installed_compatible_projects(server)
+    dependencies = _dependency_tree(server, version, {version.get("project_id")}, installed)
     version["required_dependencies"] = dependencies
+    version["satisfied_dependencies"] = sorted(installed)
     return version
 
 
@@ -161,7 +163,9 @@ def _compatible_dependency_version(server: Server, dependency: dict[str, Any]) -
     return versions[0]
 
 
-def _dependency_tree(server: Server, version: dict[str, Any], visited: set[str | None]) -> list[dict[str, Any]]:
+def _dependency_tree(server: Server, version: dict[str, Any], visited: set[str | None], installed: set[str] | None = None) -> list[dict[str, Any]]:
+    if installed is None:
+        installed = _installed_compatible_projects(server)
     resolved: list[dict[str, Any]] = []
     for dependency in version.get("dependencies") or []:
         if dependency.get("dependency_type") != "required" or not (dependency.get("project_id") or dependency.get("version_id")):
@@ -172,14 +176,41 @@ def _dependency_tree(server: Server, version: dict[str, Any], visited: set[str |
             if not project_id or project_id in visited:
                 continue
             visited.add(project_id)
+            if project_id in installed:
+                continue
             project = _get(f"/project/{project_id}")
             if project.get("server_side") == "unsupported":
                 continue
-            resolved.extend(_dependency_tree(server, dep_version, visited))
+            resolved.extend(_dependency_tree(server, dep_version, visited, installed))
             resolved.append({"project_id": project["id"], "title": project["title"], "description": project.get("description", ""), "icon_url": project.get("icon_url"), "categories": project.get("categories", []), "version": _normalize_version(dep_version)})
         except (httpx.HTTPError, KeyError, ValueError):
             continue
     return resolved
+
+
+def _installed_compatible_projects(server: Server) -> set[str]:
+    """Return enabled Modrinth projects already satisfied on this server."""
+    info = server_market_info(server)
+    directory = os.path.join(server.path, info["folder"])
+    installed: set[str] = set()
+    checked_versions: dict[str, dict[str, Any] | None] = {}
+    for filename, record in _read_registry(server).items():
+        project_id = str(record.get("project_id") or "")
+        version_id = str(record.get("version_id") or "")
+        if not project_id or not version_id:
+            continue
+        # Disabled or externally removed files must not satisfy a dependency.
+        if not os.path.isfile(os.path.join(directory, filename)):
+            continue
+        if version_id not in checked_versions:
+            try:
+                checked_versions[version_id] = _get(f"/version/{version_id}")
+            except (httpx.HTTPError, KeyError, ValueError):
+                checked_versions[version_id] = None
+        version = checked_versions[version_id]
+        if version and version.get("project_id") == project_id and _version_compatible(server, version):
+            installed.add(project_id)
+    return installed
 
 
 def _version_compatible(server: Server, version: dict[str, Any]) -> bool:

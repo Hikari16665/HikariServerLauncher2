@@ -15,3 +15,6 @@ tui:
   enabled: false
 backup:
   dir: "backups"
+modpack:
+  # 在线时使用的 UTF-8 不兼容规则；离线时不启用该功能。
+  incompatible-list-url: "https://hsl-config.oss-cn-beijing.aliyuncs.com/incompatible.txt"
