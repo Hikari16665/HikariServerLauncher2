@@ -46,6 +46,15 @@ class MrpackImportTests(unittest.TestCase):
         )
         self.assertFalse(_rule_matches(rule, "jec", "1.21.1", set()))
 
+    def test_slug_rule_matches_compact_loader_mod_id(self):
+        rule = _parse_rules(
+            "id=cit-resewn game=* desc=client-only custom item textures\n"
+        )[0]
+
+        self.assertTrue(_rule_matches(rule, "cit-resewn", "1.21.1", set()))
+        self.assertTrue(_rule_matches(rule, "citresewn", "1.21.1", set()))
+        self.assertFalse(_rule_matches(rule, "cit-resewn-compat", "1.21.1", set()))
+
     def test_jar_mod_ids_include_fabric_and_forge_metadata(self):
         archive = io.BytesIO()
         with zipfile.ZipFile(archive, "w") as jar:

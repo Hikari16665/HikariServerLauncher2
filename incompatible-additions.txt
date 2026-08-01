@@ -25,3 +25,4 @@ id=programmer-art-fix game=* desc=客户端程序员艺术资源修复包，专�
 id=smooth-scroll game=* desc=客户端界面平滑滚动模组，专用服务器没有可滚动界面
 id=fast-scrolling game=* desc=客户端列表快速滚动模组，专用服务器没有可滚动界面
 id=hide-key-binding game=* desc=客户端按键绑定界面整理模组，专用服务器没有按键设置界面
+id=zume game=* desc=客户端缩放功能模组，专用服务器不需要安装

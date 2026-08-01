@@ -181,6 +181,7 @@ def _enrich_files(index: dict[str, Any], rules: list[dict[str, Any]]) -> list[di
             for rule in rules
             if any(_rule_matches(rule, identifier, game, pack_ids) for identifier in identifiers)
         )
+        reasons = list(dict.fromkeys(reasons))
         supported = not reasons
         result.append({
             "key": f"{number}:{sha1}", "path": item["path"], "size": item.get("fileSize", 0),
@@ -278,11 +279,20 @@ def _parse_rules(text: str) -> list[dict[str, Any]]:
 
 
 def _rule_matches(rule: dict[str, Any], mod_id: str, game: str, pack_ids: set[str]) -> bool:
-    if not fnmatchcase(mod_id, rule["id"]) or (
-        rule["with"] and not any(fnmatchcase(pack_id, rule["with"]) for pack_id in pack_ids)
+    if not _identifier_matches(mod_id, rule["id"]) or (
+        rule["with"]
+        and not any(_identifier_matches(pack_id, rule["with"]) for pack_id in pack_ids)
     ):
         return False
     return all(_compare_version(game, operator, value) for operator, value in rule["games"])
+
+
+def _identifier_matches(identifier: str, pattern: str) -> bool:
+    if fnmatchcase(identifier, pattern):
+        return True
+    compact_identifier = re.sub(r"[-_+]", "", identifier)
+    compact_pattern = re.sub(r"[-_+]", "", pattern)
+    return fnmatchcase(compact_identifier, compact_pattern)
 
 
 def _compare_version(current: str, operator: str, expected: str) -> bool:
