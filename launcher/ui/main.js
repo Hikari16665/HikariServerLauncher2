@@ -46,14 +46,23 @@ async function refreshStatus() {
     const status = await invoke("get_status");
     installDir.textContent = status.install_dir || "未找到 HSL2 发布目录";
     backendState.textContent = status.backend_running ? "后端运行中" : "后端未运行";
-    if (status.port_conflict) backendState.textContent = "5000 端口被其他程序占用";
+    if (status.port_conflict) backendState.textContent = `${status.backend_port} 端口被其他程序占用`;
     backendState.classList.toggle("online", status.backend_running);
     backendState.classList.toggle("error", status.port_conflict);
     renderAutostart(status.autostart_enabled);
     showAdminKey(status.admin_key);
     modeButtons.find(button => button.dataset.mode === "frontend").disabled = !status.frontend_available;
-    if (!status.backend_available) {
-      showMessage("未找到后端程序，请将启动器放入 HSL2 发布目录", "error");
+    modeButtons.filter(button => button.dataset.mode !== "frontend").forEach(button => {
+      button.disabled = !status.backend_available;
+    });
+    autostartButton.disabled = !status.backend_available;
+    if (!status.backend_available && selectedMode !== "frontend" && status.frontend_available) {
+      selectedMode = "frontend";
+      modeButtons.forEach(item => item.classList.toggle("selected", item.dataset.mode === "frontend"));
+    }
+    launchButton.disabled = !modeButtons.some(button => button.dataset.mode === selectedMode && !button.disabled);
+    if (status.install_error || !status.backend_available) {
+      showMessage(status.install_error || "未找到后端程序，请重新安装 HSL2", "error");
     }
   } catch (error) {
     showMessage(String(error), "error");
@@ -78,7 +87,7 @@ autostartButton.addEventListener("click", async () => {
   } catch (error) {
     showMessage(String(error), "error");
   } finally {
-    autostartButton.disabled = false;
+    await refreshStatus();
   }
 });
 
@@ -90,12 +99,11 @@ launchButton.addEventListener("click", async () => {
     const result = await invoke("launch_mode", { mode: selectedMode });
     showMessage(result.message, "success");
     showAdminKey(result.admin_key);
-    await refreshStatus();
   } catch (error) {
     showMessage(String(error), "error");
   } finally {
-    launchButton.disabled = false;
     launchButton.textContent = "立即启动";
+    await refreshStatus();
   }
 });
 

@@ -27,8 +27,10 @@ struct LauncherStatus {
     frontend_available: bool,
     backend_running: bool,
     port_conflict: bool,
+    backend_port: u16,
     autostart_enabled: bool,
     install_dir: String,
+    install_error: Option<String>,
     admin_key: Option<String>,
 }
 
@@ -190,10 +192,12 @@ fn hidden_command(path: &Path, root: &Path) -> Command {
 fn start_backend(root: &Path) -> Result<bool, String> {
     match probe_backend(root) {
         BackendProbe::Ready => return Ok(false),
-        BackendProbe::PortConflict => return Err(format!(
+        BackendProbe::PortConflict => {
+            return Err(format!(
             "Port {} is occupied by another program, not HSL2. Close it or change the HSL2 port.",
             read_backend_port(root)
-        )),
+        ))
+        }
         BackendProbe::Offline => {}
     }
 
@@ -240,15 +244,25 @@ fn start_frontend(root: &Path) -> Result<(), String> {
 
 #[cfg(windows)]
 fn autostart_enabled() -> bool {
+    let Ok(expected) = autostart_command() else {
+        return false;
+    };
     RegKey::predef(HKEY_CURRENT_USER)
         .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")
         .and_then(|key| key.get_value::<String, _>(AUTOSTART_NAME))
-        .is_ok()
+        .is_ok_and(|value| value == expected)
 }
 
 #[cfg(not(windows))]
 fn autostart_enabled() -> bool {
     false
+}
+
+#[cfg(windows)]
+fn autostart_command() -> Result<String, String> {
+    let executable =
+        env::current_exe().map_err(|error| format!("Unable to locate the launcher: {error}"))?;
+    Ok(format!("\"{}\" --backend-only", executable.display()))
 }
 
 #[cfg(windows)]
@@ -259,9 +273,7 @@ fn update_autostart(enabled: bool) -> Result<(), String> {
         .0;
 
     if enabled {
-        let executable = env::current_exe()
-            .map_err(|error| format!("Unable to locate the launcher: {error}"))?;
-        let value = format!("\"{}\" --backend-only", executable.display());
+        let value = autostart_command()?;
         key.set_value(AUTOSTART_NAME, &value)
             .map_err(|error| format!("Unable to create the startup entry: {error}"))
     } else {
@@ -280,15 +292,25 @@ fn update_autostart(_enabled: bool) -> Result<(), String> {
 
 #[tauri::command]
 fn get_status() -> LauncherStatus {
-    let root = install_dir().unwrap_or_default();
-    let probe = probe_backend(&root);
+    let (root, install_error) = match install_dir() {
+        Ok(root) => (root, None),
+        Err(error) => (PathBuf::new(), Some(error)),
+    };
+    let port = read_backend_port(&root);
+    let probe = if install_error.is_none() {
+        probe_backend(&root)
+    } else {
+        BackendProbe::Offline
+    };
     LauncherStatus {
         backend_available: backend_path(&root).exists(),
         frontend_available: frontend_path(&root).exists(),
         backend_running: probe == BackendProbe::Ready,
         port_conflict: probe == BackendProbe::PortConflict,
+        backend_port: port,
         autostart_enabled: autostart_enabled(),
         install_dir: root.display().to_string(),
+        install_error,
         admin_key: read_admin_key(&root),
     }
 }
