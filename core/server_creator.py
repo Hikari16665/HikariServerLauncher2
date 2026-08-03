@@ -1,6 +1,9 @@
+import contextlib
 import os
 import platform
 import sys
+import tempfile
+import time
 from urllib.parse import urlencode
 
 import httpx
@@ -8,6 +11,8 @@ import httpx
 from .config import ConfigKey
 from .source import SourceManager
 from .workspace import ServerType, WorkspaceManager
+
+MAX_SERVER_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024
 
 
 def create_server_flow(
@@ -342,16 +347,13 @@ def _forge_installer_candidates(version: str, source) -> list[str]:
                         build
                         for build in builds
                         if any(
-                            item.get("category") == "installer"
-                            and item.get("format") == "jar"
+                            item.get("category") == "installer" and item.get("format") == "jar"
                             for item in (build.get("files") or [])
                         )
                     ]
                     if not installable:
                         return []
-                    latest = sorted(
-                        installable, key=lambda b: b.get("build", 0), reverse=True
-                    )[0]
+                    latest = sorted(installable, key=lambda b: b.get("build", 0), reverse=True)[0]
                     forge_version = latest.get("version", "")
                     if "-" in forge_version:
                         parts = forge_version.split("-", 1)
@@ -382,8 +384,7 @@ def _forge_installer_candidates(version: str, source) -> list[str]:
     for fs in source.forge.list:
         if fs.type == "official" and fs.download:
             candidates.append(
-                f"{fs.download.rstrip('/')}/{full_version}/"
-                f"forge-{full_version}-installer.jar"
+                f"{fs.download.rstrip('/')}/{full_version}/forge-{full_version}-installer.jar"
             )
     candidates.append(
         f"https://maven.minecraftforge.net/net/minecraftforge/forge/"
@@ -462,9 +463,7 @@ def _run_installer(
         os.path.exists(os.path.join(server_path, name))
         for name in ("run.bat", "run.sh", "user_jvm_args.txt")
     ) or any(
-        name.startswith("forge-")
-        and name.endswith(".jar")
-        and name != installer_jar_name
+        name.startswith("forge-") and name.endswith(".jar") and name != installer_jar_name
         for name in os.listdir(server_path)
     )
     if not produced_runtime:
@@ -480,36 +479,57 @@ def _download_file(
     start: float = 0,
     end: float = 100,
 ):
-    os.makedirs(os.path.dirname(destination) or ".", exist_ok=True)
-
-    with (
-        httpx.Client(timeout=httpx.Timeout(300.0, connect=60.0)) as client,
-        client.stream("GET", url, follow_redirects=True) as response,
-    ):
-        response.raise_for_status()
-        total = int(response.headers.get("content-length", 0))
-        downloaded = 0
-        started_at = __import__("time").monotonic()
-        last_report_at = started_at
-        with open(destination, "wb") as f:
-            for chunk in response.iter_bytes(chunk_size=65536):
-                f.write(chunk)
-                downloaded += len(chunk)
-                now = __import__("time").monotonic()
-                if total:
-                    pct = start + (downloaded / total) * (end - start)
+    directory = os.path.dirname(destination) or "."
+    os.makedirs(directory, exist_ok=True)
+    temporary_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            prefix=f".{os.path.basename(destination)}.",
+            suffix=".hsl-part",
+            dir=directory,
+            delete=False,
+        ) as output:
+            temporary_path = output.name
+            with (
+                httpx.Client(timeout=httpx.Timeout(300.0, connect=60.0)) as client,
+                client.stream("GET", url, follow_redirects=True) as response,
+            ):
+                response.raise_for_status()
+                total = int(response.headers.get("content-length", 0))
+                if total > MAX_SERVER_DOWNLOAD_BYTES:
+                    raise ValueError("服务端下载超过 2 GB 安全上限")
+                downloaded = 0
+                started_at = time.monotonic()
+                last_report_at = started_at
+                for chunk in response.iter_bytes(chunk_size=65536):
+                    downloaded += len(chunk)
+                    if downloaded > MAX_SERVER_DOWNLOAD_BYTES:
+                        raise ValueError("服务端下载超过 2 GB 安全上限")
+                    output.write(chunk)
+                    now = time.monotonic()
                     elapsed = max(now - started_at, 0.001)
                     speed = downloaded / elapsed
-                    remaining = (total - downloaded) / speed if speed else None
+                    remaining = (total - downloaded) / speed if total and speed else None
                     task.set_metrics(
                         downloaded_bytes=downloaded,
-                        total_bytes=total,
+                        total_bytes=total or None,
                         speed_bps=round(speed),
                         eta_seconds=round(remaining) if remaining is not None else None,
                     )
-                    if now - last_report_at > 0.2 or downloaded == total:
-                        task.set_progress(pct, "Downloading server files…")
-                        last_report_at = now
+                    if total:
+                        pct = start + (downloaded / total) * (end - start)
+                        if now - last_report_at > 0.2 or downloaded == total:
+                            task.set_progress(pct, "Downloading server files…")
+                            last_report_at = now
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary_path, destination)
+        temporary_path = ""
+    finally:
+        if temporary_path:
+            with contextlib.suppress(OSError):
+                os.remove(temporary_path)
 
     return destination
 
@@ -523,15 +543,23 @@ def _download_first_available(
 ) -> str:
     errors: list[str] = []
     for index, url in enumerate(urls, start=1):
+        attempt_fd, attempt_path = tempfile.mkstemp(
+            prefix=f".{os.path.basename(destination)}.",
+            suffix=".hsl-attempt",
+            dir=os.path.dirname(destination) or ".",
+        )
+        os.close(attempt_fd)
         try:
             task.set_progress(start, f"Trying Forge download source {index}/{len(urls)}")
-            _download_file(url, destination, task, start=start, end=end)
-            with open(destination, "rb") as installer:
+            _download_file(url, attempt_path, task, start=start, end=end)
+            with open(attempt_path, "rb") as installer:
                 if installer.read(4) != b"PK\x03\x04":
                     raise ValueError("downloaded response is not a valid installer JAR")
+            os.replace(attempt_path, destination)
             return destination
         except (httpx.HTTPError, OSError, ValueError) as error:
             errors.append(f"{url}: {error}")
-            if os.path.exists(destination):
-                os.remove(destination)
+        finally:
+            with contextlib.suppress(OSError):
+                os.remove(attempt_path)
     raise RuntimeError("All Forge installer sources failed: " + " | ".join(errors))
