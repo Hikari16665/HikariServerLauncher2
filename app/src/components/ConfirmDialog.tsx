@@ -24,15 +24,53 @@ export function showConfirm(message: string): Promise<boolean> {
   });
 }
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 export default function ConfirmDialog() {
   const [state, setState] = useState<ConfirmState | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     confirmCallback = setState;
-    return () => { confirmCallback = null; };
+    return () => {
+      confirmCallback = null;
+    };
   }, []);
+
+  useEffect(() => {
+    if (!state) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    cancelRef.current?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        state.onCancel();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [state]);
 
   return (
     <AnimatePresence>
@@ -53,6 +91,7 @@ export default function ConfirmDialog() {
           onClick={state.onCancel}
         >
           <motion.div
+            ref={dialogRef}
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.9, opacity: 0 }}
@@ -60,7 +99,6 @@ export default function ConfirmDialog() {
             role="dialog"
             aria-modal="true"
             aria-label="确认操作"
-            onKeyDown={(e) => { if (e.key === "Escape") state.onCancel(); }}
             style={{
               background: "var(--bg-primary)",
               border: "1px solid var(--border)",
@@ -71,19 +109,23 @@ export default function ConfirmDialog() {
               boxShadow: "var(--shadow-lg)",
             }}
           >
-            <p style={{
-              fontSize: 14,
-              color: "var(--text-primary)",
-              marginBottom: 20,
-              lineHeight: 1.6,
-            }}>
+            <p
+              style={{
+                fontSize: 14,
+                color: "var(--text-primary)",
+                marginBottom: 20,
+                lineHeight: 1.6,
+              }}
+            >
               {state.message}
             </p>
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <div
+              style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}
+            >
               <button
+                ref={cancelRef}
                 className="btn-ghost"
                 onClick={state.onCancel}
-                autoFocus
                 style={{ fontSize: 13 }}
               >
                 取消
