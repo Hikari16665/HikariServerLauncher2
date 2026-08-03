@@ -41,6 +41,12 @@ struct LaunchResult {
 #[derive(Deserialize)]
 struct BackendConfig {
     auth: Option<AuthConfig>,
+    app: Option<AppConfig>,
+}
+
+#[derive(Deserialize)]
+struct AppConfig {
+    port: Option<u16>,
 }
 
 #[derive(Deserialize)]
@@ -106,6 +112,21 @@ fn read_admin_key(root: &Path) -> Option<String> {
     })
 }
 
+fn read_backend_port(root: &Path) -> u16 {
+    let candidates = [
+        root.join("config.yml"),
+        root.join("hsl-server").join("config.yml"),
+    ];
+    candidates
+        .into_iter()
+        .find_map(|path| {
+            let content = std::fs::read_to_string(path).ok()?;
+            let config: BackendConfig = serde_yaml::from_str(&content).ok()?;
+            config.app?.port
+        })
+        .unwrap_or(5000)
+}
+
 #[derive(PartialEq)]
 enum BackendProbe {
     Ready,
@@ -113,8 +134,9 @@ enum BackendProbe {
     Offline,
 }
 
-fn probe_backend() -> BackendProbe {
-    let address = SocketAddr::from(([127, 0, 0, 1], 5000));
+fn probe_backend(root: &Path) -> BackendProbe {
+    let port = read_backend_port(root);
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
     let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(350)) else {
         return BackendProbe::Offline;
     };
@@ -140,8 +162,8 @@ fn probe_backend() -> BackendProbe {
     }
 }
 
-fn backend_is_running() -> bool {
-    probe_backend() == BackendProbe::Ready
+fn backend_is_running(root: &Path) -> bool {
+    probe_backend(root) == BackendProbe::Ready
 }
 
 fn hidden_command(path: &Path, root: &Path) -> Command {
@@ -166,12 +188,12 @@ fn hidden_command(path: &Path, root: &Path) -> Command {
 }
 
 fn start_backend(root: &Path) -> Result<bool, String> {
-    match probe_backend() {
+    match probe_backend(root) {
         BackendProbe::Ready => return Ok(false),
-        BackendProbe::PortConflict => return Err(
-            "Port 5000 is occupied by another program, not HSL2. Close it or change the HSL2 port."
-                .to_string(),
-        ),
+        BackendProbe::PortConflict => return Err(format!(
+            "Port {} is occupied by another program, not HSL2. Close it or change the HSL2 port.",
+            read_backend_port(root)
+        )),
         BackendProbe::Offline => {}
     }
 
@@ -189,10 +211,10 @@ fn start_backend(root: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
-fn wait_for_backend(timeout: Duration) -> bool {
+fn wait_for_backend(root: &Path, timeout: Duration) -> bool {
     let started = Instant::now();
     while started.elapsed() < timeout {
-        if backend_is_running() {
+        if backend_is_running(root) {
             return true;
         }
         thread::sleep(Duration::from_millis(350));
@@ -259,7 +281,7 @@ fn update_autostart(_enabled: bool) -> Result<(), String> {
 #[tauri::command]
 fn get_status() -> LauncherStatus {
     let root = install_dir().unwrap_or_default();
-    let probe = probe_backend();
+    let probe = probe_backend(&root);
     LauncherStatus {
         backend_available: backend_path(&root).exists(),
         frontend_available: frontend_path(&root).exists(),
@@ -278,7 +300,7 @@ async fn launch_mode(mode: String) -> Result<LaunchResult, String> {
         match mode.as_str() {
             "full" => {
                 start_backend(&root)?;
-                if !wait_for_backend(Duration::from_secs(35)) {
+                if !wait_for_backend(&root, Duration::from_secs(35)) {
                     return Err(
                         "The backend started but did not become ready within 35 seconds. Check the logs directory."
                             .to_string(),
@@ -298,7 +320,7 @@ async fn launch_mode(mode: String) -> Result<LaunchResult, String> {
                 } else {
                     "后端已经在运行"
                 };
-                if started && !wait_for_backend(Duration::from_secs(35)) {
+                if started && !wait_for_backend(&root, Duration::from_secs(35)) {
                     return Err("The backend started but did not become ready within 35 seconds. Check the logs directory.".to_string());
                 }
                 Ok(LaunchResult { message: message.to_string(), admin_key: read_admin_key(&root) })
