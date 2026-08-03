@@ -14,11 +14,9 @@ from urllib.parse import urljoin
 import httpx
 import stun
 
-
 CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 PRIVATE_V4_NETWORKS = tuple(
-    ipaddress.ip_network(cidr)
-    for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    ipaddress.ip_network(cidr) for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )
 IPV4_PATTERN = re.compile(
     r"(?<![\d.])(?:25[0-5]|2[0-4]\d|1?\d?\d)"
@@ -83,7 +81,11 @@ class EnvironmentManager:
             self._initialized = True
 
     def _load_stun_servers(self) -> list[str]:
-        root = sys._MEIPASS if getattr(sys, "frozen", False) else os.path.dirname(os.path.dirname(__file__))  # type: ignore
+        root = (
+            sys._MEIPASS
+            if getattr(sys, "frozen", False)
+            else os.path.dirname(os.path.dirname(__file__))
+        )  # type: ignore
         stun_file = os.path.join(root, "stun_valid_hosts.txt")
         if os.path.exists(stun_file):
             with open(stun_file, encoding="utf-8") as file:
@@ -106,7 +108,9 @@ class EnvironmentManager:
             return False
         try:
             address = ipaddress.ip_address(value)
-            return address.version == 4 and any(address in network for network in PRIVATE_V4_NETWORKS)
+            return address.version == 4 and any(
+                address in network for network in PRIVATE_V4_NETWORKS
+            )
         except ValueError:
             return False
 
@@ -159,7 +163,9 @@ class EnvironmentManager:
             reasons.append(f"路由器 WAN 地址 {router_wan_ip} 是私网地址，存在上游二级 NAT")
         elif router_wan_mismatch:
             weights.append(0.78)
-            reasons.append(f"路由器 WAN 地址与互联网出口 IPv4 不一致（{router_wan_ip} / {public_ipv4}）")
+            reasons.append(
+                f"路由器 WAN 地址与互联网出口 IPv4 不一致（{router_wan_ip} / {public_ipv4}）"
+            )
 
         mapped_is_shared = self._is_cgnat_address(mapped_ipv4)
         signals["mapped_in_100_64_10"] = mapped_is_shared
@@ -204,7 +210,9 @@ class EnvironmentManager:
         signals["distinct_stun_addresses"] = len(mapped_ips)
         if unstable_mapping:
             weights.append(0.52)
-            reasons.append(f"不同 STUN 服务器返回 {len(mapped_ips)} 个外部地址，映射可能经过多级运营商 NAT")
+            reasons.append(
+                f"不同 STUN 服务器返回 {len(mapped_ips)} 个外部地址，映射可能经过多级运营商 NAT"
+            )
 
         normalized_nat_types = {
             re.sub(r"[^a-z]+", " ", value.lower()).strip() for value in nat_types
@@ -242,12 +250,15 @@ class EnvironmentManager:
         )
         is_cgnat = has_strong_carrier_signal and confidence >= 0.65
         directly_confirmed = bool(
-            mapped_is_shared
-            or public_is_non_global
-            or shared_hops
-            or router_wan_is_shared
+            mapped_is_shared or public_is_non_global or shared_hops or router_wan_is_shared
         )
-        verdict = "confirmed" if is_cgnat and directly_confirmed else "likely" if is_cgnat else "not_detected"
+        verdict = (
+            "confirmed"
+            if is_cgnat and directly_confirmed
+            else "likely"
+            if is_cgnat
+            else "not_detected"
+        )
 
         if not reasons:
             reasons.append("未发现运营商级 NAT 的有效证据")
@@ -363,7 +374,7 @@ class EnvironmentManager:
                     while True:
                         try:
                             payload = sock.recvfrom(65535)[0].decode("utf-8", errors="ignore")
-                        except socket.timeout:
+                        except TimeoutError:
                             break
                         for line in payload.splitlines():
                             if line.lower().startswith("location:"):
@@ -391,7 +402,10 @@ class EnvironmentManager:
                                 service_type = child.text or ""
                             elif child.tag.endswith("controlURL"):
                                 control_url = child.text or ""
-                        if "WANIPConnection" not in service_type and "WANPPPConnection" not in service_type:
+                        if (
+                            "WANIPConnection" not in service_type
+                            and "WANPPPConnection" not in service_type
+                        ):
                             continue
                         if not control_url:
                             continue
@@ -400,7 +414,8 @@ class EnvironmentManager:
                             '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
                             's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">'
                             "<s:Body>"
-                            f'<u:GetExternalIPAddress xmlns:u="{service_type}"></u:GetExternalIPAddress>'
+                            f'<u:GetExternalIPAddress xmlns:u="{service_type}">'
+                            "</u:GetExternalIPAddress>"
                             "</s:Body></s:Envelope>"
                         )
                         response = client.post(
@@ -429,7 +444,14 @@ class EnvironmentManager:
         # Prefer mainland-accessible servers before global servers.
         servers = sorted(
             self._stun_servers,
-            key=lambda value: 0 if any(name in value for name in ("qq.com", "miwifi.com", "bilibili.com", "163.com", "jd.com")) else 1,
+            key=lambda value: (
+                0
+                if any(
+                    name in value
+                    for name in ("qq.com", "miwifi.com", "bilibili.com", "163.com", "jd.com")
+                )
+                else 1
+            ),
         )
         for stun_server in servers[:8]:
             if time.monotonic() >= deadline:

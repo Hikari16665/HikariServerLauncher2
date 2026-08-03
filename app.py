@@ -1,8 +1,6 @@
-import contextlib
 import json
 import logging
 import os
-import shutil
 import sys
 import threading
 import time
@@ -33,7 +31,20 @@ from core import (
     create_server_flow,
 )
 from core.backup import BACKUP_FILENAME_RE, BackupManager
+from core.modrinth_market import (
+    categories_for,
+    delete_addon,
+    install_version,
+    list_addons,
+    project_versions,
+    search_projects,
+    server_market_info,
+    update_addon,
+    version_details,
+)
 from core.monitor import SystemMonitor
+from core.mrpack_import import MAX_PACK_FILES, import_mrpack_flow, inspect_mrpack
+from core.server_diagnostics import diagnose_server
 from core.server_file_manager import (
     create_file,
     create_folder,
@@ -46,19 +57,6 @@ from core.server_file_manager import (
     write_file,
 )
 from core.server_process import ServerProcessManager, export_launch_script
-from core.server_diagnostics import diagnose_server
-from core.modrinth_market import (
-    categories_for,
-    delete_addon,
-    install_version,
-    list_addons,
-    project_versions,
-    search_projects,
-    server_market_info,
-    update_addon,
-    version_details,
-)
-from core.mrpack_import import MAX_PACK_FILES, import_mrpack_flow, inspect_mrpack
 from core.tui import TUI
 from core.version_resolver import (
     get_april_versions,
@@ -231,6 +229,7 @@ app.config["MAX_CONTENT_LENGTH"] = 512 * 1024 * 1024
 def request_too_large(_error):
     return jsonify({"error": "上传内容超过 512 MB 限制"}), 413
 
+
 # ── Request logging hooks ────────────────────────────────────────
 
 
@@ -339,7 +338,13 @@ def _validate_server_settings(data: dict, require_version: bool = False) -> str 
             return "最大内存必须是整数 MB"
         if value < 512 or value > 1_048_576:
             return "最大内存必须在 512 MB 到 1 TB 之间"
-    if "java_version" in data and str(data.get("java_version")) not in {"8", "11", "17", "21", "25"}:
+    if "java_version" in data and str(data.get("java_version")) not in {
+        "8",
+        "11",
+        "17",
+        "21",
+        "25",
+    }:
         return "不支持的 Java 版本"
     if "extra_args" in data:
         args = data.get("extra_args")
@@ -1198,6 +1203,7 @@ def list_java_versions():
 # ── WebSocket: Server Terminal ──────────────────────────────────
 
 if sock is not None:
+
     @sock.route("/api/tasks/stream")
     def task_stream(ws):
         """Push task snapshots. The client never needs to poll task endpoints."""
@@ -1322,6 +1328,7 @@ def system_license():
 
 # ── Modrinth market and add-on management ─────────────────────────
 
+
 @app.route("/api/mrpack/inspect", methods=["POST"])
 def inspect_mrpack_endpoint():
     if not auth.require_auth(request):
@@ -1361,7 +1368,9 @@ def import_mrpack_endpoint():
     ):
         return jsonify({"error": "selected_paths 包含无效项目"}), 400
     task = tm.create_composite_task(
-        execute_fn=lambda task, _: import_mrpack_flow(task, session_id, selected_paths, metadata, workspace)
+        execute_fn=lambda task, _: import_mrpack_flow(
+            task, session_id, selected_paths, metadata, workspace
+        )
     )
     task.title = f"导入模组包：{metadata['name']}"
     task.set_step("queued", "等待导入", "pending")
@@ -1378,54 +1387,100 @@ def _market_server(server_uuid):
 
 @app.route("/api/market/server/<server_uuid>", methods=["GET"])
 def market_server_info(server_uuid):
-    if not auth.require_auth(request): return jsonify({"error": auth.get_auth_error(request)}), 401
-    try: return jsonify(server_market_info(_market_server(server_uuid)))
-    except LookupError as error: return jsonify({"error": str(error)}), 404
-    except ValueError as error: return jsonify({"error": str(error)}), 400
+    if not auth.require_auth(request):
+        return jsonify({"error": auth.get_auth_error(request)}), 401
+    try:
+        return jsonify(server_market_info(_market_server(server_uuid)))
+    except LookupError as error:
+        return jsonify({"error": str(error)}), 404
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
 
 
 @app.route("/api/market/categories/<server_uuid>", methods=["GET"])
 def market_categories(server_uuid):
-    if not auth.require_auth(request): return jsonify({"error": auth.get_auth_error(request)}), 401
-    try: return jsonify({"categories": categories_for(_market_server(server_uuid))})
-    except LookupError as error: return jsonify({"error": str(error)}), 404
-    except Exception as error: return jsonify({"error": str(error)}), 502
+    if not auth.require_auth(request):
+        return jsonify({"error": auth.get_auth_error(request)}), 401
+    try:
+        return jsonify({"categories": categories_for(_market_server(server_uuid))})
+    except LookupError as error:
+        return jsonify({"error": str(error)}), 404
+    except Exception as error:
+        return jsonify({"error": str(error)}), 502
 
 
 @app.route("/api/market/search", methods=["GET"])
 def market_search():
-    if not auth.require_auth(request): return jsonify({"error": auth.get_auth_error(request)}), 401
+    if not auth.require_auth(request):
+        return jsonify({"error": auth.get_auth_error(request)}), 401
     try:
-        return jsonify(search_projects(_market_server(request.args.get("server_uuid", "")), request.args.get("query", ""), request.args.get("category", ""), request.args.get("index", "relevance"), request.args.get("offset", type=int, default=0), request.args.get("limit", type=int, default=20)))
-    except LookupError as error: return jsonify({"error": str(error)}), 404
-    except ValueError as error: return jsonify({"error": str(error)}), 400
-    except Exception as error: return jsonify({"error": str(error)}), 502
+        return jsonify(
+            search_projects(
+                _market_server(request.args.get("server_uuid", "")),
+                request.args.get("query", ""),
+                request.args.get("category", ""),
+                request.args.get("index", "relevance"),
+                request.args.get("offset", type=int, default=0),
+                request.args.get("limit", type=int, default=20),
+            )
+        )
+    except LookupError as error:
+        return jsonify({"error": str(error)}), 404
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception as error:
+        return jsonify({"error": str(error)}), 502
 
 
 @app.route("/api/market/projects/<project_id>/versions", methods=["GET"])
 def market_versions(project_id):
-    if not auth.require_auth(request): return jsonify({"error": auth.get_auth_error(request)}), 401
-    try: return jsonify({"versions": project_versions(_market_server(request.args.get("server_uuid", "")), project_id)})
-    except LookupError as error: return jsonify({"error": str(error)}), 404
-    except Exception as error: return jsonify({"error": str(error)}), 502
+    if not auth.require_auth(request):
+        return jsonify({"error": auth.get_auth_error(request)}), 401
+    try:
+        return jsonify(
+            {
+                "versions": project_versions(
+                    _market_server(request.args.get("server_uuid", "")), project_id
+                )
+            }
+        )
+    except LookupError as error:
+        return jsonify({"error": str(error)}), 404
+    except Exception as error:
+        return jsonify({"error": str(error)}), 502
 
 
 @app.route("/api/market/versions/<version_id>", methods=["GET"])
 def market_version(version_id):
-    if not auth.require_auth(request): return jsonify({"error": auth.get_auth_error(request)}), 401
-    try: return jsonify(version_details(_market_server(request.args.get("server_uuid", "")), version_id))
-    except LookupError as error: return jsonify({"error": str(error)}), 404
-    except Exception as error: return jsonify({"error": str(error)}), 502
+    if not auth.require_auth(request):
+        return jsonify({"error": auth.get_auth_error(request)}), 401
+    try:
+        return jsonify(
+            version_details(_market_server(request.args.get("server_uuid", "")), version_id)
+        )
+    except LookupError as error:
+        return jsonify({"error": str(error)}), 404
+    except Exception as error:
+        return jsonify({"error": str(error)}), 502
 
 
 @app.route("/api/market/install", methods=["POST"])
 def market_install():
-    if not auth.require_auth(request): return jsonify({"error": auth.get_auth_error(request)}), 401
+    if not auth.require_auth(request):
+        return jsonify({"error": auth.get_auth_error(request)}), 401
     data = request.get_json() or {}
-    try: server = _market_server(data.get("server_uuid", "")); version_id = data["version_id"]
-    except LookupError as error: return jsonify({"error": str(error)}), 404
-    except KeyError: return jsonify({"error": "Missing version_id"}), 400
-    task = tm.create_composite_task(execute_fn=lambda current, _progress: install_version(current, server, version_id, bool(data.get("install_dependencies", True))))
+    try:
+        server = _market_server(data.get("server_uuid", ""))
+        version_id = data["version_id"]
+    except LookupError as error:
+        return jsonify({"error": str(error)}), 404
+    except KeyError:
+        return jsonify({"error": "Missing version_id"}), 400
+    task = tm.create_composite_task(
+        execute_fn=lambda current, _progress: install_version(
+            current, server, version_id, bool(data.get("install_dependencies", True))
+        )
+    )
     task.title = f"安装附加到 {server.name}"
     task.set_step("queued", "等待下载", "pending")
     tm.run_task_background(task.task_id)
@@ -1434,22 +1489,33 @@ def market_install():
 
 @app.route("/api/servers/<server_uuid>/addons", methods=["GET"])
 def server_addons(server_uuid):
-    if not auth.require_auth(request): return jsonify({"error": auth.get_auth_error(request)}), 401
-    try: return jsonify(list_addons(_market_server(server_uuid)))
-    except LookupError as error: return jsonify({"error": str(error)}), 404
-    except ValueError as error: return jsonify({"error": str(error)}), 400
+    if not auth.require_auth(request):
+        return jsonify({"error": auth.get_auth_error(request)}), 401
+    try:
+        return jsonify(list_addons(_market_server(server_uuid)))
+    except LookupError as error:
+        return jsonify({"error": str(error)}), 404
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
 
 
 @app.route("/api/servers/<server_uuid>/addons/<path:filename>", methods=["PUT", "DELETE"])
 def server_addon(server_uuid, filename):
-    if not auth.require_auth(request): return jsonify({"error": auth.get_auth_error(request)}), 401
+    if not auth.require_auth(request):
+        return jsonify({"error": auth.get_auth_error(request)}), 401
     try:
         server = _market_server(server_uuid)
-        if request.method == "DELETE": delete_addon(server, filename); return jsonify({"success": True})
-        data = request.get_json() or {}; return jsonify(update_addon(server, filename, data.get("enabled"), data.get("name")))
-    except LookupError as error: return jsonify({"error": str(error)}), 404
-    except FileNotFoundError as error: return jsonify({"error": str(error)}), 404
-    except ValueError as error: return jsonify({"error": str(error)}), 400
+        if request.method == "DELETE":
+            delete_addon(server, filename)
+            return jsonify({"success": True})
+        data = request.get_json() or {}
+        return jsonify(update_addon(server, filename, data.get("enabled"), data.get("name")))
+    except LookupError as error:
+        return jsonify({"error": str(error)}), 404
+    except FileNotFoundError as error:
+        return jsonify({"error": str(error)}), 404
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
 
 
 # ── Static / Ping ────────────────────────────────────────────────

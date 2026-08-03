@@ -85,7 +85,9 @@ class BaseTask(ABC):
         if existing:
             existing.update({"label": label, "status": status, "updated_at": time.time()})
         else:
-            self.steps.append({"id": step_id, "label": label, "status": status, "updated_at": time.time()})
+            self.steps.append(
+                {"id": step_id, "label": label, "status": status, "updated_at": time.time()}
+            )
         self.notify()
 
     def complete_step(self, step_id: str, label: str | None = None) -> None:
