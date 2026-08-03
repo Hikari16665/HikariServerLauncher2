@@ -41,6 +41,8 @@ export default function ImportServer() {
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadingRef = useRef(false);
   const mountedRef = useRef(true);
+  const inspectIdRef = useRef(0);
+  const readerRef = useRef<FileReader | null>(null);
   const [stage, setStage] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -71,12 +73,14 @@ export default function ImportServer() {
     [files, query],
   );
   const selectedCount = files.filter((item) => item.selected).length;
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
-    },
-    [],
-  );
+      inspectIdRef.current += 1;
+      readerRef.current?.abort();
+    };
+  }, []);
 
   async function inspect(file?: File) {
     if (!file || uploadingRef.current) return;
@@ -88,10 +92,12 @@ export default function ImportServer() {
       addToast("mrpack 文件不能超过 512 MB", "error");
       return;
     }
+    const inspectId = ++inspectIdRef.current;
     uploadingRef.current = true;
     setUploading(true);
     try {
-      const base64 = await fileToBase64(file);
+      const base64 = await fileToBase64(file, readerRef);
+      if (inspectId !== inspectIdRef.current || !mountedRef.current) return;
       const response = await invoke<ProxyResponse>("proxy_upload", {
         req: {
           url: `${apiUrl}/api/mrpack/inspect`,
@@ -104,18 +110,35 @@ export default function ImportServer() {
       const body = JSON.parse(response.body || "{}");
       if (response.status < 200 || response.status >= 300)
         throw new Error(body.error || `HTTP ${response.status}`);
-      if (!mountedRef.current) return;
+      if (inspectId !== inspectIdRef.current || !mountedRef.current) return;
       setManifest(body);
       setFiles(body.files);
       setName(body.pack.name);
       setStage(1);
     } catch (error: any) {
-      if (mountedRef.current)
+      if (
+        inspectId === inspectIdRef.current &&
+        mountedRef.current &&
+        error?.name !== "AbortError"
+      )
         addToast(error.message || "无法解析模组包", "error");
     } finally {
-      uploadingRef.current = false;
-      if (mountedRef.current) setUploading(false);
+      if (inspectId === inspectIdRef.current) {
+        uploadingRef.current = false;
+        readerRef.current = null;
+        if (mountedRef.current) setUploading(false);
+      }
     }
+  }
+
+  function cancelInspect() {
+    inspectIdRef.current += 1;
+    readerRef.current?.abort();
+    readerRef.current = null;
+    uploadingRef.current = false;
+    setUploading(false);
+    setDragging(false);
+    addToast("已停止读取模组包", "info");
   }
 
   function toggle(key: string) {
@@ -207,7 +230,7 @@ export default function ImportServer() {
           <strong>{uploading ? "正在读取模组包…" : "拖入 .mrpack 文件"}</strong>
           <p>
             {uploading
-              ? "正在解析文件和模组元数据，请勿离开此页面。"
+              ? "正在解析文件和模组元数据。"
               : "或者点击选择文件。解析过程不会修改现有服务器。"}
           </p>
         </div>
@@ -217,9 +240,10 @@ export default function ImportServer() {
           <div>
             <span className="loading-spinner" />
             <strong>正在读取模组包</strong>
-            <p>
-              正在上传并分析模组信息，完成前暂时不能切换页面或再次选择文件。
-            </p>
+            <p>正在上传并分析模组信息，可以取消或切换到其他页面。</p>
+            <button className="btn-ghost" onClick={cancelInspect}>
+              取消读取
+            </button>
           </div>
         </div>
       )}
@@ -388,11 +412,16 @@ export default function ImportServer() {
   );
 }
 
-function fileToBase64(file: File): Promise<string> {
+function fileToBase64(
+  file: File,
+  readerRef: React.MutableRefObject<FileReader | null>,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
+    readerRef.current = reader;
     reader.onload = () => resolve(String(reader.result).split(",")[1]);
-    reader.onerror = reject;
+    reader.onerror = () => reject(reader.error || new Error("读取文件失败"));
+    reader.onabort = () => reject(new DOMException("读取已取消", "AbortError"));
     reader.readAsDataURL(file);
   });
 }
