@@ -19,7 +19,7 @@ if exist "%DIST%" (
 :: Step 2: Build Tauri frontend
 echo [2/7] Building frontend (Tauri)...
 cd /d "%ROOT%\app"
-call npx tauri build
+call npx tauri build --no-bundle
 if %ERRORLEVEL% neq 0 (
     echo Frontend build failed!
     exit /b 1
@@ -28,7 +28,7 @@ if %ERRORLEVEL% neq 0 (
 :: Step 3: Build the graphical launcher
 echo [3/7] Building launcher (Tauri)...
 cd /d "%ROOT%\launcher"
-call "%ROOT%\app\node_modules\.bin\tauri.cmd" build
+call "%ROOT%\app\node_modules\.bin\tauri.cmd" build --no-bundle
 if %ERRORLEVEL% neq 0 (
     echo Launcher build failed!
     exit /b 1
@@ -53,7 +53,8 @@ if exist "%TAURI_EXE%" (
     copy /y "%TAURI_EXE%" "%DIST%\hsl-app.exe" >nul
     echo   - hsl-app.exe - frontend
 ) else (
-    echo   WARNING: Tauri exe not found
+    echo   ERROR: Tauri frontend executable not found: %TAURI_EXE%
+    exit /b 1
 )
 
 if exist "%LAUNCHER_EXE%" (
@@ -74,6 +75,24 @@ if exist "%ROOT%\USAGE.md" (
 if exist "%ROOT%\LICENSE" (
     copy /y "%ROOT%\LICENSE" "%DIST%\LICENSE" >nul
     echo   - LICENSE - GPL v3
+)
+
+:: Refuse to package a partial or malformed release tree.
+if not exist "%DIST%\HSL2-Launcher.exe" (
+    echo   ERROR: Release validation failed: launcher is missing
+    exit /b 1
+)
+if not exist "%DIST%\hsl-app.exe" (
+    echo   ERROR: Release validation failed: frontend is missing
+    exit /b 1
+)
+if not exist "%DIST%\hsl-server\hsl-server.exe" (
+    echo   ERROR: Release validation failed: backend is missing
+    exit /b 1
+)
+if not exist "%DIST%\LICENSE" (
+    echo   ERROR: Release validation failed: license is missing
+    exit /b 1
 )
 
 :: Clean up build temp directory
