@@ -20,6 +20,7 @@ MAX_SERVER_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024
 MAX_JAVA_ARCHIVE_BYTES = 1024 * 1024 * 1024
 MAX_JAVA_EXPANDED_BYTES = 4 * 1024 * 1024 * 1024
 MAX_JAVA_ARCHIVE_ENTRIES = 100_000
+METADATA_TIMEOUT = httpx.Timeout(30.0, connect=15.0)
 
 
 def create_server_flow(
@@ -313,7 +314,11 @@ def _resolve_vanilla_url(version: str, source) -> str | None:
     for vs in source.mc.vanilla.list:
         if vs.type == "bmclapi":
             try:
-                resp = httpx.get(vs.server.format(version=version), follow_redirects=True)
+                resp = httpx.get(
+                    vs.server.format(version=version),
+                    follow_redirects=True,
+                    timeout=METADATA_TIMEOUT,
+                )
                 if resp.status_code == 200:
                     return str(resp.url)
             except Exception:
@@ -341,6 +346,7 @@ def _resolve_fabric_url(version: str, source) -> str | None:
             resp = httpx.get(
                 "https://meta.fabricmc.net/v2/versions/game",
                 follow_redirects=True,
+                timeout=METADATA_TIMEOUT,
             )
             if resp.status_code == 200:
                 versions = resp.json()
@@ -355,6 +361,7 @@ def _resolve_fabric_url(version: str, source) -> str | None:
             loader_resp = httpx.get(
                 "https://meta.fabricmc.net/v2/versions/loader",
                 follow_redirects=True,
+                timeout=METADATA_TIMEOUT,
             )
             if loader_resp.status_code != 200:
                 return None
@@ -398,6 +405,7 @@ def _forge_installer_candidates(version: str, source) -> list[str]:
             resp = httpx.get(
                 f"https://bmclapi2.bangbang93.com/forge/minecraft/{version}",
                 follow_redirects=True,
+                timeout=METADATA_TIMEOUT,
             )
             if resp.status_code == 200:
                 builds = resp.json()
