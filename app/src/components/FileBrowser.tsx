@@ -57,9 +57,21 @@ export default function FileBrowser({ serverUuid }: Props) {
 
   async function handleDownload(file: FileItem) {
     if (file.type === "directory") return;
-    window.open(
-      `${apiUrl}/api/servers/${serverUuid}/files/download?path=${encodeURIComponent(file.path)}&token=${token}`
-    );
+    try {
+      const result = await invoke<{ saved: boolean; path: string | null }>(
+        "proxy_download",
+        {
+          req: {
+            url: `${apiUrl}/api/servers/${serverUuid}/files/download?path=${encodeURIComponent(file.path)}`,
+            file_name: file.name,
+            token: token || "",
+          },
+        },
+      );
+      if (result.saved) addToast("文件已保存", "success", result.path || undefined);
+    } catch (error: any) {
+      addToast(error?.message || String(error) || "下载失败", "error");
+    }
   }
 
   async function handleEdit(file: FileItem) {

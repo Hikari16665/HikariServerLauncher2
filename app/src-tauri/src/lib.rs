@@ -124,6 +124,19 @@ struct ProxyUploadRequest {
     token: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct ProxyDownloadRequest {
+    url: String,
+    file_name: String,
+    token: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ProxyDownloadResult {
+    saved: bool,
+    path: Option<String>,
+}
+
 fn agent() -> &'static ureq::Agent {
     static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
     AGENT.get_or_init(|| {
@@ -232,6 +245,83 @@ async fn proxy_upload(req: ProxyUploadRequest) -> ProxyResponse {
 }
 
 #[tauri::command]
+async fn proxy_download(req: ProxyDownloadRequest) -> Result<ProxyDownloadResult, String> {
+    validate_proxy_url(&req.url)?;
+    if req.file_name.contains(['/', '\\', '\r', '\n']) || req.file_name.is_empty() {
+        return Err("Invalid download filename".to_string());
+    }
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(destination) = rfd::FileDialog::new()
+            .set_file_name(&req.file_name)
+            .save_file()
+        else {
+            return Ok(ProxyDownloadResult {
+                saved: false,
+                path: None,
+            });
+        };
+
+        let response = agent()
+            .get(&req.url)
+            .set("Authorization", &format!("Bearer {}", req.token))
+            .call()
+            .map_err(|error| match error {
+                ureq::Error::Status(status, response) => {
+                    let detail = response.into_string().unwrap_or_default();
+                    format!("Download failed with HTTP {status}: {detail}")
+                }
+                ureq::Error::Transport(error) => error.to_string(),
+            })?;
+
+        let parent = destination
+            .parent()
+            .ok_or_else(|| "Invalid destination directory".to_string())?;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let temporary = parent.join(format!(".{}.{}.hsl-part", req.file_name, stamp));
+        let backup = parent.join(format!(".{}.{}.hsl-backup", req.file_name, stamp));
+
+        let mut source = response.into_reader();
+        let mut target = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(|error| format!("Cannot create temporary download file: {error}"))?;
+        if let Err(error) = std::io::copy(&mut source, &mut target) {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(format!("Cannot save downloaded file: {error}"));
+        }
+        drop(target);
+
+        let had_existing = destination.exists();
+        if had_existing {
+            std::fs::rename(&destination, &backup)
+                .map_err(|error| format!("Cannot prepare existing destination: {error}"))?;
+        }
+        if let Err(error) = std::fs::rename(&temporary, &destination) {
+            if had_existing {
+                let _ = std::fs::rename(&backup, &destination);
+            }
+            let _ = std::fs::remove_file(&temporary);
+            return Err(format!("Cannot finalize downloaded file: {error}"));
+        }
+        if had_existing {
+            let _ = std::fs::remove_file(&backup);
+        }
+
+        Ok(ProxyDownloadResult {
+            saved: true,
+            path: Some(destination.to_string_lossy().into_owned()),
+        })
+    })
+    .await
+    .map_err(|error| format!("proxy_download task failed: {error}"))?
+}
+
+#[tauri::command]
 fn win_is_maximized(window: tauri::Window) -> bool {
     window.is_maximized().unwrap_or(false)
 }
@@ -267,6 +357,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             proxy_fetch,
             proxy_upload,
+            proxy_download,
             win_minimize,
             win_toggle_maximize,
             win_close,
