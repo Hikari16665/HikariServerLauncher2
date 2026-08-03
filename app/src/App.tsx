@@ -1,23 +1,33 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { useSettings } from "./store/settings";
 import Layout from "./components/Layout";
 import ToastContainer from "./components/Toast";
 import ConfirmDialog from "./components/ConfirmDialog";
-import Dashboard from "./pages/Dashboard";
-import Servers from "./pages/Servers";
-import ServerDetail from "./pages/ServerDetail";
-import CreateServer from "./pages/CreateServer";
-import Settings from "./pages/Settings";
-import About from "./pages/About";
-import Onboarding from "./pages/Onboarding";
-import Login from "./pages/Login";
-import Market from "./pages/Market";
-import Addons from "./pages/Addons";
-import Diagnostics from "./pages/Diagnostics";
-import ImportServer from "./pages/ImportServer";
 import { api } from "./lib/api";
+
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Servers = lazy(() => import("./pages/Servers"));
+const ServerDetail = lazy(() => import("./pages/ServerDetail"));
+const CreateServer = lazy(() => import("./pages/CreateServer"));
+const Settings = lazy(() => import("./pages/Settings"));
+const About = lazy(() => import("./pages/About"));
+const Onboarding = lazy(() => import("./pages/Onboarding"));
+const Login = lazy(() => import("./pages/Login"));
+const Market = lazy(() => import("./pages/Market"));
+const Addons = lazy(() => import("./pages/Addons"));
+const Diagnostics = lazy(() => import("./pages/Diagnostics"));
+const ImportServer = lazy(() => import("./pages/ImportServer"));
+
+function PageFallback() {
+  return (
+    <div className="session-check" role="status" aria-live="polite">
+      <span className="loading-spinner" />
+      <strong>正在加载页面…</strong>
+    </div>
+  );
+}
 
 function AppRoutes() {
   const { onboardingDone, token } = useSettings();
@@ -83,7 +93,9 @@ export default function App() {
       <ToastContainer />
       <ConfirmDialog />
       <AnimatePresence mode="wait">
-        <AppRoutes />
+        <Suspense fallback={<PageFallback />}>
+          <AppRoutes />
+        </Suspense>
       </AnimatePresence>
     </>
   );
