@@ -1161,6 +1161,13 @@ def list_tasks():
     return jsonify({"tasks": [t.to_dict() for t in tm.get_tasks(status)]})
 
 
+@app.route("/api/tasks/completed", methods=["DELETE"])
+def clear_completed_tasks():
+    if not auth.require_auth(request):
+        return jsonify({"error": auth.get_auth_error(request)}), 401
+    return jsonify({"success": True, "removed": tm.clear_completed_tasks()})
+
+
 @app.route("/api/tasks/<task_id>", methods=["GET"])
 def get_task(task_id):
     if not auth.require_auth(request):

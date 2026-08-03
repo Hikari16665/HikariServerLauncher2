@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -11,6 +12,7 @@ from .task import BaseTask, CompositeTask, OperationTask, TaskStatus
 
 
 class TaskManager:
+    MAX_COMPLETED_TASKS = 200
     _instance: Optional["TaskManager"] = None
 
     def __new__(cls):
@@ -27,6 +29,7 @@ class TaskManager:
                 max_workers=4, thread_name_prefix="task_manager_"
             )
             self._listeners: set[Callable[[dict[str, Any]], None]] = set()
+            self._lock = threading.RLock()
             self._initialized = True
 
     def _ensure_event_loop(self):
@@ -77,7 +80,9 @@ class TaskManager:
             task.error_message = str(e)
             task.completed_at = time.time()
             if task.current_step:
-                task.set_step(task.current_step, task.progress_message or task.current_step, "failed")
+                task.set_step(
+                    task.current_step, task.progress_message or task.current_step, "failed"
+                )
             task.notify()
 
     async def _run_task_async(self, task: BaseTask):
@@ -105,18 +110,39 @@ class TaskManager:
             task.notify()
 
     def subscribe(self, listener: Callable[[dict[str, Any]], None]) -> Callable[[], None]:
-        self._listeners.add(listener)
+        with self._lock:
+            self._listeners.add(listener)
+
         def unsubscribe() -> None:
-            self._listeners.discard(listener)
+            with self._lock:
+                self._listeners.discard(listener)
+
         return unsubscribe
 
     def _emit_task(self, task: BaseTask) -> None:
         event = {"type": "task", "task": task.to_dict(), "timestamp": time.time()}
-        for listener in list(self._listeners):
+        with self._lock:
+            self._prune_completed_locked()
+            listeners = list(self._listeners)
+        for listener in listeners:
             try:
                 listener(event)
             except Exception:
-                self._listeners.discard(listener)
+                with self._lock:
+                    self._listeners.discard(listener)
+
+    def _prune_completed_locked(self) -> None:
+        completed = sorted(
+            (
+                task
+                for task in self._tasks.values()
+                if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED)
+            ),
+            key=lambda task: task.completed_at or 0,
+            reverse=True,
+        )
+        for task in completed[self.MAX_COMPLETED_TASKS :]:
+            self._tasks.pop(task.task_id, None)
 
     def create_operation_task(
         self, adapter_name: str, operation_name: str, **kwargs
@@ -138,11 +164,16 @@ class TaskManager:
             return False, None, error
 
         task = OperationTask(
-            task_id=str(uuid.uuid4()), adapter=adapter, operation=operation, params=kwargs,
+            task_id=str(uuid.uuid4()),
+            adapter=adapter,
+            operation=operation,
+            params=kwargs,
             title=operation.description or operation.name,
         )
         task._on_update = self._emit_task
-        self._tasks[task.task_id] = task
+        with self._lock:
+            self._prune_completed_locked()
+            self._tasks[task.task_id] = task
         return True, task, ""
 
     def create_composite_task(
@@ -157,7 +188,9 @@ class TaskManager:
             title="Create server",
         )
         task._on_update = self._emit_task
-        self._tasks[task.task_id] = task
+        with self._lock:
+            self._prune_completed_locked()
+            self._tasks[task.task_id] = task
         return task
 
     def set_task_progress(self, task_id: str, progress: float, message: str = ""):
@@ -182,7 +215,8 @@ class TaskManager:
         return True, ""
 
     def get_task(self, task_id: str) -> BaseTask | None:
-        return self._tasks.get(task_id)
+        with self._lock:
+            return self._tasks.get(task_id)
 
     def get_task_status(self, task_id: str) -> TaskStatus | None:
         task = self._tasks.get(task_id)
@@ -216,27 +250,37 @@ class TaskManager:
         return True, ""
 
     def list_tasks(self, status: TaskStatus | None = None) -> list[BaseTask]:
-        if status:
-            return [t for t in self._tasks.values() if t.status == status]
-        return list(self._tasks.values())
+        with self._lock:
+            if status:
+                return [t for t in self._tasks.values() if t.status == status]
+            return list(self._tasks.values())
 
     def get_all_tasks_info(self) -> list[dict[str, Any]]:
-        return [t.to_dict() for t in self._tasks.values()]
+        return [task.to_dict() for task in self.list_tasks()]
 
     def remove_task(self, task_id: str) -> bool:
-        if task_id in self._tasks:
-            del self._tasks[task_id]
-            return True
-        return False
+        with self._lock:
+            return self._tasks.pop(task_id, None) is not None
 
-    def clear_completed_tasks(self):
-        completed_ids = [
-            tid
-            for tid, t in self._tasks.items()
-            if t.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED)
-        ]
-        for tid in completed_ids:
-            del self._tasks[tid]
+    def clear_completed_tasks(self) -> int:
+        with self._lock:
+            completed_ids = [
+                task_id
+                for task_id, task in self._tasks.items()
+                if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED)
+            ]
+            for task_id in completed_ids:
+                del self._tasks[task_id]
+            snapshot = [task.to_dict() for task in self._tasks.values()]
+            listeners = list(self._listeners)
+        event = {"type": "task_snapshot", "tasks": snapshot, "timestamp": time.time()}
+        for listener in listeners:
+            try:
+                listener(event)
+            except Exception:
+                with self._lock:
+                    self._listeners.discard(listener)
+        return len(completed_ids)
 
     async def run_operation(
         self,
@@ -326,7 +370,7 @@ class TaskManager:
             return False, None, error
 
         self._ensure_event_loop()
-        if self._loop.is_running(): # type: ignore because event loop ensured
+        if self._loop.is_running():  # type: ignore because event loop ensured
             raise RuntimeError("Cannot run sync task when event loop is already running")
 
         self._run_task_sync(task)
@@ -355,6 +399,4 @@ class TaskManager:
         thread.start()
 
     def get_tasks(self, status: TaskStatus | None = None) -> list[BaseTask]:
-        if status:
-            return [t for t in self._tasks.values() if t.status == status]
-        return list(self._tasks.values())
+        return self.list_tasks(status)

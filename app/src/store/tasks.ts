@@ -9,6 +9,7 @@ interface TaskState {
   updateTask: (task: TaskInfo) => void;
   setFilter: (f: TaskState["filter"]) => void;
   setExpanded: (v: boolean) => void;
+  clearCompleted: () => void;
 }
 
 export const useTaskStore = create<TaskState>()((set) => ({
@@ -24,4 +25,10 @@ export const useTaskStore = create<TaskState>()((set) => ({
     })),
   setFilter: (filter) => set({ filter }),
   setExpanded: (expanded) => set({ expanded }),
+  clearCompleted: () =>
+    set((state) => ({
+      tasks: state.tasks.filter(
+        (task) => task.status === "running" || task.status === "pending",
+      ),
+    })),
 }));
