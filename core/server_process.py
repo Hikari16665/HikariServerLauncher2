@@ -9,24 +9,19 @@ import queue
 import re
 import shlex
 import subprocess
-import sys
 import threading
 import time
 from collections import deque
 from typing import Any, Optional
 
 from .logger import Logger
+from .runtime_paths import java_runtime_dir
 from .workspace import Server, ServerType
 
 
 def _find_java_binary(java_version: str) -> str | None:
     """Find the java binary for the given version."""
-    java_dir = os.path.join(
-        sys._MEIPASS
-        if getattr(sys, "frozen", False)
-        else os.path.dirname(os.path.dirname(__file__)),
-        "java",
-    )
+    java_dir = str(java_runtime_dir())
     version_dir = os.path.join(java_dir, java_version)
     if not os.path.exists(version_dir):
         return None
@@ -115,9 +110,7 @@ def _build_forge_like_command(server: Server, java_binary: str, lib_path: str) -
         jars = [
             name
             for name in os.listdir(server.path)
-            if name.startswith("forge-")
-            and name.endswith(".jar")
-            and "installer" not in name
+            if name.startswith("forge-") and name.endswith(".jar") and "installer" not in name
         ]
         if jars:
             legacy_jar = sorted(jars, reverse=True)[0]
@@ -188,13 +181,15 @@ def _build_run_command(server: Server) -> list[str]:
 
     else:
         # Generic fallback
-        return _with_nogui([
-            java_binary,
-            "-Dfile.encoding=utf-8",
-            f"-Xmx{server.max_memory}M",
-            "-jar",
-            "server.jar",
-        ])
+        return _with_nogui(
+            [
+                java_binary,
+                "-Dfile.encoding=utf-8",
+                f"-Xmx{server.max_memory}M",
+                "-jar",
+                "server.jar",
+            ]
+        )
 
 
 def export_launch_script(server: Server, fmt: str = "batch") -> str:

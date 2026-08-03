@@ -1,8 +1,9 @@
 import os
 import platform
-import sys
 
 from .adapter import BaseAdapter, Operation, OperationResult
+from .runtime_paths import java_runtime_dir
+from .server_creator import _download_java
 from .source import SourceManager
 
 
@@ -11,12 +12,7 @@ class JavaAdapter(BaseAdapter):
     adapter_description = "Java 版本管理适配器"
 
     def __init__(self):
-        self.java_dir = os.path.join(
-            sys._MEIPASS  # type: ignore
-            if getattr(sys, "frozen", False)
-            else os.path.dirname(os.path.dirname(__file__)),
-            "java",
-        )
+        self.java_dir = str(java_runtime_dir())
         os.makedirs(self.java_dir, exist_ok=True)
         super().__init__()
 
@@ -132,47 +128,25 @@ def _download_version(adapter: JavaAdapter, version: str) -> OperationResult:
         if not download_url:
             return OperationResult(success=False, error=f"未找到 Java {version} 的下载链接")
 
-        import tempfile
-        import zipfile
-
-        import httpx
-
-        version_dir = os.path.join(adapter.java_dir, version)
-        os.makedirs(version_dir, exist_ok=True)
-
-        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp_file:
-            tmp_path = tmp_file.name
-
-        try:
-            with httpx.Client(timeout=300.0) as client:
-                response = client.get(download_url, follow_redirects=True)
-                response.raise_for_status()
-                with open(tmp_path, "wb") as f:
-                    f.write(response.content)
-
-            with zipfile.ZipFile(tmp_path, "r") as zip_ref:
-                zip_ref.extractall(version_dir)
-
-            binary_path = _find_java_binary(adapter, version)
-            if binary_path:
-                return OperationResult(
-                    success=True,
-                    data={
-                        "version": version,
-                        "binary_path": binary_path,
-                        "download_url": download_url,
-                    },
-                )
-            else:
-                return OperationResult(
-                    success=False, error="下载成功但未找到 java 二进制文件，请检查解压结果"
-                )
-        finally:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+        binary_path = _download_java(version, adapter.java_dir, source, _AdapterDownloadProgress())
+        return OperationResult(
+            success=True,
+            data={
+                "version": version,
+                "binary_path": binary_path,
+                "download_url": download_url,
+            },
+        )
 
     except Exception as e:
         return OperationResult(success=False, error=str(e))
+
+
+class _AdapterDownloadProgress:
+    """Progress sink for the legacy adapter operation API."""
+
+    def set_progress(self, _value: float, _message: str) -> None:
+        return None
 
 
 def _list_installed_versions(adapter: JavaAdapter) -> OperationResult:

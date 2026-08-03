@@ -2,7 +2,6 @@ import contextlib
 import os
 import platform
 import shutil
-import sys
 import tempfile
 import time
 import uuid
@@ -13,6 +12,7 @@ from urllib.parse import urlencode
 import httpx
 
 from .config import ConfigKey
+from .runtime_paths import java_runtime_dir
 from .source import SourceManager
 from .workspace import ServerType, WorkspaceManager
 
@@ -50,12 +50,7 @@ def create_server_flow(
     task.set_step("java", f"Prepare Java {java_version}")
     task.set_progress(5, f"Checking Java {java_version}…")
 
-    java_dir = os.path.join(
-        sys._MEIPASS  # type: ignore
-        if getattr(sys, "frozen", False)
-        else os.path.dirname(os.path.dirname(__file__)),
-        "java",
-    )
+    java_dir = str(java_runtime_dir())
     os.makedirs(java_dir, exist_ok=True)
 
     java_binary = _find_java_binary(java_version, java_dir)
