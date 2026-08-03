@@ -8,7 +8,7 @@ import mimetypes
 import os
 import shutil
 from datetime import datetime
-from typing import Any
+from typing import Any, BinaryIO
 
 
 class PathTraversalError(Exception):
@@ -20,12 +20,16 @@ def _safe_path(server_path: str, relative_path: str) -> str:
 
     Blocks path traversal (e.g. '../../../etc/passwd').
     """
-    # Normalize and strip leading slashes/dots
+    if not isinstance(relative_path, str) or "\x00" in relative_path:
+        raise PathTraversalError("Invalid path")
+    root = os.path.realpath(os.path.abspath(server_path))
     cleaned = relative_path.replace("\\", "/").lstrip("/")
-    resolved = os.path.normpath(os.path.join(server_path, cleaned))
-
-    # Must be within server_path
-    if not resolved.startswith(os.path.normpath(server_path)):
+    resolved = os.path.realpath(os.path.abspath(os.path.join(root, cleaned)))
+    try:
+        inside_root = os.path.commonpath((root, resolved)) == root
+    except ValueError:
+        inside_root = False
+    if not inside_root:
         raise PathTraversalError(f"Path traversal blocked: {relative_path}")
 
     return resolved
@@ -214,46 +218,51 @@ def upload_file(
     server_path: str, relative_path: str, file_data: bytes, filename: str
 ) -> dict[str, Any]:
     """Save an uploaded file to the server directory."""
+    from io import BytesIO
+
+    return upload_stream(server_path, relative_path, BytesIO(file_data), filename)
+
+
+def upload_stream(
+    server_path: str, relative_path: str, stream: BinaryIO, filename: str
+) -> dict[str, Any]:
+    """Stream an upload to disk while enforcing the server root boundary."""
+    if not filename or filename in {".", ".."}:
+        return {"error": "Invalid filename"}
+    if os.path.basename(filename) != filename or "/" in filename or "\\" in filename:
+        return {"error": "Invalid filename"}
     try:
-        target_dir = _safe_path(server_path, relative_path) if relative_path else server_path
+        target_dir = _safe_path(server_path, relative_path or "")
+        target_file = _safe_path(server_path, os.path.join(relative_path, filename))
     except PathTraversalError as e:
         return {"error": str(e)}
 
-    os.makedirs(target_dir, exist_ok=True)
-    target_file = os.path.join(target_dir, filename)
-
-    if os.path.basename(target_file) == ".hslmeta":
+    if filename.casefold() == ".hslmeta":
         return {"error": "Cannot overwrite server metadata file"}
 
     try:
-        with open(target_file, "wb") as f:
-            f.write(file_data)
+        os.makedirs(target_dir, exist_ok=True)
+        with open(target_file, "wb") as output:
+            shutil.copyfileobj(stream, output, length=1024 * 1024)
     except Exception as e:
         return {"error": str(e)}
-
     return _file_info(target_file, server_path)
 
 
 def download_file(server_path: str, relative_path: str):
-    """Read a file for download. Returns (error, data, mimetype) tuple."""
+    """Resolve a file for streaming. Returns (error, path, mimetype) tuple."""
     try:
         target = _safe_path(server_path, relative_path)
     except PathTraversalError as e:
-        return str(e), b"", None
+        return str(e), None, None
 
     if not os.path.exists(target):
-        return f"File not found: {relative_path}", b"", None
+        return f"File not found: {relative_path}", None, None
     if os.path.isdir(target):
-        return f"Cannot download a directory: {relative_path}", b"", None
-
-    try:
-        with open(target, "rb") as f:
-            data = f.read()
-    except Exception as e:
-        return str(e), b"", None
+        return f"Cannot download a directory: {relative_path}", None, None
 
     mime_type, _ = mimetypes.guess_type(relative_path)
     if mime_type is None:
         mime_type = "application/octet-stream"
 
-    return None, data, mime_type
+    return None, target, mime_type

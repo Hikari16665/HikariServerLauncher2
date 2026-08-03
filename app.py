@@ -1,5 +1,4 @@
 import contextlib
-import io
 import json
 import logging
 import os
@@ -42,7 +41,7 @@ from core.server_file_manager import (
     download_file,
     list_directory,
     read_file,
-    upload_file,
+    upload_stream,
     write_file,
 )
 from core.server_process import ServerProcessManager, export_launch_script
@@ -223,6 +222,7 @@ tui = TUI()
 tui.set_bind(host, port)
 
 app = Flask(name)
+app.config["MAX_CONTENT_LENGTH"] = 512 * 1024 * 1024
 
 # ── Request logging hooks ────────────────────────────────────────
 
@@ -651,7 +651,7 @@ def upload_server_file(server_uuid):
 
     path = request.args.get("path", "")
 
-    result = upload_file(server.path, path, file.read(), file.filename)
+    result = upload_stream(server.path, path, file.stream, file.filename)
     if "error" in result:
         return jsonify({"error": result["error"]}), 400
 
@@ -671,12 +671,12 @@ def download_server_file(server_uuid):
     if not path:
         return jsonify({"error": "Missing 'path' query parameter"}), 400
 
-    error, data, mime_type = download_file(server.path, path)
+    error, file_path, mime_type = download_file(server.path, path)
     if error:
         return jsonify({"error": error}), 400
 
     return send_file(
-        io.BytesIO(data),
+        file_path,
         mimetype=mime_type,
         as_attachment=True,
         download_name=os.path.basename(path),
