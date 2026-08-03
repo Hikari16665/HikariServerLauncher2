@@ -13,6 +13,7 @@ import yaml
 from flask import Flask, g, jsonify, render_template_string, request, send_file
 from flask import request as ws_request
 from flask_sock import Sock
+from werkzeug.exceptions import RequestEntityTooLarge
 
 from core import (
     SPCONFIGS,
@@ -223,6 +224,11 @@ tui.set_bind(host, port)
 
 app = Flask(name)
 app.config["MAX_CONTENT_LENGTH"] = 512 * 1024 * 1024
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def request_too_large(_error):
+    return jsonify({"error": "上传内容超过 512 MB 限制"}), 413
 
 # ── Request logging hooks ────────────────────────────────────────
 

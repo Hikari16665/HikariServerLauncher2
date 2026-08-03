@@ -8,7 +8,10 @@ for portability, with "/" separators regardless of platform.
 
 import os
 import re
+import shutil
+import stat
 import sys
+import tempfile
 import zipfile
 from datetime import datetime
 from typing import Any, Optional
@@ -16,6 +19,7 @@ from typing import Any, Optional
 from .config import ConfigKey
 
 BACKUP_FILENAME_RE = re.compile(r"^[0-9a-fA-F-]+_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.zip$")
+MAX_RESTORE_BYTES = 200 * 1024 * 1024 * 1024
 
 
 class BackupManager:
@@ -101,33 +105,65 @@ class BackupManager:
 
         Deletes the existing server directory contents first.
         """
-        import shutil
-
         backup_dir = self._get_backup_dir()
         full_path = os.path.join(backup_dir, backup_filename)
         if not os.path.exists(full_path):
             raise FileNotFoundError(f"Backup file not found: {backup_filename}")
 
-        if task:
-            task.set_progress(5, "Removing existing server files...")
-        if os.path.exists(server_path):
-            shutil.rmtree(server_path)
-        os.makedirs(server_path, exist_ok=True)
-
-        if task:
-            task.set_progress(10, "Extracting backup...")
+        parent = os.path.dirname(os.path.abspath(server_path))
+        os.makedirs(parent, exist_ok=True)
+        staging = tempfile.mkdtemp(prefix=".hsl-restore-", dir=parent)
+        rollback = f"{server_path}.restore-old"
         with zipfile.ZipFile(full_path, "r") as zf:
-            name_list = zf.namelist()
-            total = len(name_list) or 1
-            for idx, member in enumerate(name_list):
-                zf.extract(member, server_path)
-                if task and (idx + 1) % 100 == 0:
-                    pct = 10 + int((idx + 1) / total * 85)
-                    task.set_progress(pct, f"Restoring: {member}")
+            members = zf.infolist()
+            self._validate_archive(members, staging)
+            total = len(members) or 1
+            try:
+                for idx, member in enumerate(members):
+                    zf.extract(member, staging)
+                    if task and (idx + 1) % 100 == 0:
+                        pct = 5 + int((idx + 1) / total * 85)
+                        task.set_progress(pct, f"Restoring: {member.filename}")
+            except Exception:
+                shutil.rmtree(staging, ignore_errors=True)
+                raise
+
+        # Only replace the live server after the archive has been completely
+        # validated and extracted. Keep the old tree until the swap succeeds.
+        shutil.rmtree(rollback, ignore_errors=True)
+        try:
+            if os.path.exists(server_path):
+                os.replace(server_path, rollback)
+            os.replace(staging, server_path)
+        except Exception:
+            if not os.path.exists(server_path) and os.path.exists(rollback):
+                os.replace(rollback, server_path)
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+        shutil.rmtree(rollback, ignore_errors=True)
 
         if task:
             task.set_progress(100, "Backup restored successfully")
         return True
+
+    @staticmethod
+    def _validate_archive(members: list[zipfile.ZipInfo], destination: str) -> None:
+        root = os.path.realpath(destination)
+        total_size = 0
+        for member in members:
+            target = os.path.realpath(os.path.join(root, member.filename))
+            try:
+                inside = os.path.commonpath((root, target)) == root
+            except ValueError:
+                inside = False
+            if not inside:
+                raise ValueError(f"Backup contains an unsafe path: {member.filename}")
+            mode = member.external_attr >> 16
+            if stat.S_ISLNK(mode):
+                raise ValueError(f"Backup contains a symbolic link: {member.filename}")
+            total_size += member.file_size
+            if total_size > MAX_RESTORE_BYTES:
+                raise ValueError("Backup expands beyond the 200 GB restore limit")
 
     def delete_backup(self, backup_filename: str) -> bool:
         """Delete a backup file. Returns True if deleted."""
