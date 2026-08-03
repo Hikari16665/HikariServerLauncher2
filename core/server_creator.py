@@ -1,9 +1,13 @@
 import contextlib
 import os
 import platform
+import shutil
 import sys
 import tempfile
 import time
+import uuid
+import zipfile
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlencode
 
 import httpx
@@ -13,6 +17,9 @@ from .source import SourceManager
 from .workspace import ServerType, WorkspaceManager
 
 MAX_SERVER_DOWNLOAD_BYTES = 2 * 1024 * 1024 * 1024
+MAX_JAVA_ARCHIVE_BYTES = 1024 * 1024 * 1024
+MAX_JAVA_EXPANDED_BYTES = 4 * 1024 * 1024 * 1024
+MAX_JAVA_ARCHIVE_ENTRIES = 100_000
 
 
 def create_server_flow(
@@ -170,9 +177,6 @@ def _find_java_binary(version: str, java_dir: str) -> str | None:
 
 
 def _download_java(version: str, java_dir: str, source, task) -> str:
-    import tempfile
-    import zipfile
-
     java_source = None
     for item in source.java.list:
         if version in item.windows or version in item.linux:
@@ -191,9 +195,8 @@ def _download_java(version: str, java_dir: str, source, task) -> str:
         raise RuntimeError(f"No download URL for Java {version}")
 
     version_dir = os.path.join(java_dir, version)
-    os.makedirs(version_dir, exist_ok=True)
-
     tmp_path = None
+    staging_dir = None
     try:
         tmp_fd, tmp_path = tempfile.mkstemp(suffix=".zip")
         os.close(tmp_fd)
@@ -204,34 +207,95 @@ def _download_java(version: str, java_dir: str, source, task) -> str:
         ):
             response.raise_for_status()
             total = int(response.headers.get("content-length", 0))
+            if total > MAX_JAVA_ARCHIVE_BYTES:
+                raise ValueError("Java 压缩包超过 1 GB 安全上限")
             downloaded = 0
             with open(tmp_path, "wb") as f:
                 for chunk in response.iter_bytes(chunk_size=65536):
-                    f.write(chunk)
                     downloaded += len(chunk)
+                    if downloaded > MAX_JAVA_ARCHIVE_BYTES:
+                        raise ValueError("Java 压缩包超过 1 GB 安全上限")
+                    f.write(chunk)
                     if total:
                         pct = 10 + (downloaded / total) * 30
                         task.set_progress(pct, f"Downloading Java {version}...")
 
         task.set_progress(42, f"Extracting Java {version}...")
+        staging_dir = tempfile.mkdtemp(prefix=f".java-{version}-", dir=java_dir)
         with zipfile.ZipFile(tmp_path, "r") as zf:
-            zf.extractall(version_dir)
+            _safe_extract_java_archive(zf, Path(staging_dir))
+
+        archive_root = _find_java_archive_root(Path(staging_dir))
+        if archive_root is None:
+            raise RuntimeError(f"Java {version} downloaded but binary not found after extraction")
+
+        if platform.system() != "Windows":
+            for root, dirs, files in os.walk(archive_root):
+                for directory in dirs:
+                    os.chmod(os.path.join(root, directory), 0o755)
+                for filename in files:
+                    os.chmod(os.path.join(root, filename), 0o755)
+
+        backup_dir = f"{version_dir}.hsl-backup-{uuid.uuid4().hex}"
+        had_existing = os.path.exists(version_dir)
+        if had_existing:
+            os.replace(version_dir, backup_dir)
+        try:
+            os.replace(archive_root, version_dir)
+        except Exception:
+            if had_existing:
+                os.replace(backup_dir, version_dir)
+            raise
+        if had_existing:
+            shutil.rmtree(backup_dir, ignore_errors=True)
 
         binary = _find_java_binary(version, java_dir)
         if not binary:
             raise RuntimeError(f"Java {version} downloaded but binary not found after extraction")
 
-        if platform.system() != "Windows":
-            for root, dirs, files in os.walk(version_dir):
-                for d in dirs:
-                    os.chmod(os.path.join(root, d), 0o755)
-                for f in files:
-                    os.chmod(os.path.join(root, f), 0o755)
-
         return binary
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.remove(tmp_path)
+        if staging_dir:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+
+def _safe_extract_java_archive(archive: zipfile.ZipFile, destination: Path) -> None:
+    entries = archive.infolist()
+    if len(entries) > MAX_JAVA_ARCHIVE_ENTRIES:
+        raise ValueError("Java 压缩包文件数量超过安全上限")
+    if sum(entry.file_size for entry in entries) > MAX_JAVA_EXPANDED_BYTES:
+        raise ValueError("Java 解压后超过 4 GB 安全上限")
+
+    for entry in entries:
+        relative = PurePosixPath(entry.filename.replace("\\", "/"))
+        mode = entry.external_attr >> 16
+        if (
+            not entry.filename
+            or relative.is_absolute()
+            or ".." in relative.parts
+            or (mode & 0o170000) == 0o120000
+        ):
+            raise ValueError(f"Java 压缩包包含不安全路径：{entry.filename}")
+        target = destination.joinpath(*relative.parts)
+        if entry.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with archive.open(entry) as source, target.open("xb") as output:
+            shutil.copyfileobj(source, output, length=1024 * 1024)
+
+
+def _find_java_archive_root(staging: Path) -> Path | None:
+    executable = "java.exe" if platform.system() == "Windows" else "java"
+    direct = staging / "bin" / executable
+    if direct.is_file():
+        return staging
+    candidates = [
+        path.parent.parent for path in staging.glob(f"*/bin/{executable}") if path.is_file()
+    ]
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _resolve_jar_url(server_type: ServerType, version: str, source) -> str | None:

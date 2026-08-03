@@ -1,3 +1,5 @@
+import io
+import zipfile
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -92,3 +94,44 @@ def test_invalid_forge_candidate_does_not_replace_existing_installer(tmp_path, m
 
     assert destination.read_bytes() == b"known-good"
     assert temporary_files(tmp_path) == []
+
+
+def test_java_archive_rejects_path_traversal(tmp_path):
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("../outside.txt", "escape")
+    payload.seek(0)
+
+    with zipfile.ZipFile(payload) as archive, pytest.raises(ValueError, match="不安全路径"):
+        server_creator._safe_extract_java_archive(archive, tmp_path / "staging")
+
+    assert not (tmp_path / "outside.txt").exists()
+
+
+def test_java_archive_rejects_symbolic_links(tmp_path):
+    payload = io.BytesIO()
+    entry = zipfile.ZipInfo("jdk/bin/java")
+    entry.create_system = 3
+    entry.external_attr = (0o120777 << 16) | 0xA0000000
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr(entry, "../../outside")
+    payload.seek(0)
+
+    with zipfile.ZipFile(payload) as archive, pytest.raises(ValueError, match="不安全路径"):
+        server_creator._safe_extract_java_archive(archive, tmp_path / "staging")
+
+
+def test_java_archive_extracts_single_runtime_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(server_creator.platform, "system", lambda: "Windows")
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("jdk-21/bin/java.exe", b"binary")
+        archive.writestr("jdk-21/release", b"JAVA_VERSION=21")
+    payload.seek(0)
+    staging = tmp_path / "staging"
+    staging.mkdir()
+
+    with zipfile.ZipFile(payload) as archive:
+        server_creator._safe_extract_java_archive(archive, staging)
+
+    assert server_creator._find_java_archive_root(staging) == staging / "jdk-21"
