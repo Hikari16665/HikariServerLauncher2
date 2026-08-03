@@ -57,6 +57,10 @@ export default function ConfirmDialog() {
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.9, opacity: 0 }}
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="确认操作"
+            onKeyDown={(e) => { if (e.key === "Escape") state.onCancel(); }}
             style={{
               background: "var(--bg-primary)",
               border: "1px solid var(--border)",
@@ -79,6 +83,7 @@ export default function ConfirmDialog() {
               <button
                 className="btn-ghost"
                 onClick={state.onCancel}
+                autoFocus
                 style={{ fontSize: 13 }}
               >
                 取消

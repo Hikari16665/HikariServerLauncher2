@@ -19,7 +19,10 @@ export const useToastStore = create<ToastState>()((set) => ({
   toasts: [],
   addToast: (message, type = "error", detail) => {
     const id = String(++nextId);
-    set((s) => ({ toasts: [...s.toasts, { id, message, type, detail }] }));
+    set((s) => {
+      const duplicate = s.toasts.some((toast) => toast.message === message && toast.type === type);
+      return duplicate ? s : { toasts: [...s.toasts, { id, message, type, detail }] };
+    });
     setTimeout(() => {
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
     }, 8000);

@@ -20,6 +20,7 @@ export default function ServerDetail() {
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const [tab, setTab] = useState<Tab>("terminal");
   const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState(false);
 
   useEffect(() => {
     if (!uuid) return;
@@ -33,8 +34,11 @@ export default function ServerDetail() {
 
   async function action(value: "start" | "stop" | "kill") {
     if (!uuid) return;
+    if (value === "kill" && !await showConfirm("确定强制终止服务器吗？未保存的世界数据可能损坏。")) return;
+    setActing(true);
     try { await api.post(`/api/servers/${uuid}/${value}`); setStatus(await api.get<ServerStatus>(`/api/servers/${uuid}/status`)); }
     catch (error: any) { addToast(error.message || "操作失败", "error", error.detail); }
+    finally { setActing(false); }
   }
   async function remove() {
     if (!uuid || !server || !await showConfirm(`确定删除“${server.name}”吗？此操作无法恢复。`)) return;
@@ -48,14 +52,14 @@ export default function ServerDetail() {
     <header className="detail-header">
       <button className="detail-back" onClick={() => navigate("/servers")} aria-label="返回">←</button>
       <div className="detail-title"><div className="detail-title-line"><h1>{server.name}</h1><span className={`state-pill ${running ? "running" : ""}`}>{running ? "运行中" : "已停止"}</span></div><p>{server.server_type} · Java {server.java_version} · {server.max_memory} MB{status?.pid ? ` · PID ${status.pid}` : ""}</p></div>
-      <div className="detail-actions">{running ? <><button className="btn-ghost" onClick={() => action("stop")}>停止</button><button className="btn-danger" onClick={() => action("kill")}>强制终止</button></> : <button className="btn-success" onClick={() => action("start")}>启动服务器</button>}<button className="btn-ghost danger-text" onClick={remove}>删除</button></div>
+      <div className="detail-actions">{running ? <><button className="btn-ghost" disabled={acting} onClick={() => action("stop")}>停止</button><button className="btn-danger" disabled={acting} onClick={() => action("kill")}>强制终止</button></> : <button className="btn-success" disabled={acting} onClick={() => action("start")}>{acting ? "处理中…" : "启动服务器"}</button>}<button className="btn-ghost danger-text" disabled={acting} onClick={remove}>删除</button></div>
     </header>
     <nav className="detail-tabs">{TABS.map((item) => <button key={item.key} className={tab === item.key ? "active" : ""} onClick={() => setTab(item.key)}>{item.label}</button>)}</nav>
     <div className="detail-workspace">
-      <div hidden={tab !== "terminal"} className="detail-view"><Terminal serverUuid={uuid!} running={status?.running} /></div>
-      <div hidden={tab !== "files"} className="detail-view"><FileBrowser serverUuid={uuid!} /></div>
-      <div hidden={tab !== "config"} className="detail-view"><ConfigEditor serverUuid={uuid!} /></div>
-      <div hidden={tab !== "backups"} className="detail-view"><BackupPanel serverUuid={uuid!} /></div>
+      {tab === "terminal" && <div className="detail-view"><Terminal serverUuid={uuid!} running={status?.running} /></div>}
+      {tab === "files" && <div className="detail-view"><FileBrowser serverUuid={uuid!} /></div>}
+      {tab === "config" && <div className="detail-view"><ConfigEditor serverUuid={uuid!} /></div>}
+      {tab === "backups" && <div className="detail-view"><BackupPanel serverUuid={uuid!} /></div>}
     </div>
   </section>;
 }

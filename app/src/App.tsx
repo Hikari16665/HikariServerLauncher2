@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { useSettings } from "./store/settings";
@@ -16,9 +17,24 @@ import Market from "./pages/Market";
 import Addons from "./pages/Addons";
 import Diagnostics from "./pages/Diagnostics";
 import ImportServer from "./pages/ImportServer";
+import { api } from "./lib/api";
 
 function AppRoutes() {
   const { onboardingDone, token } = useSettings();
+  const [checkingSession, setCheckingSession] = useState(Boolean(token));
+
+  useEffect(() => {
+    let active = true;
+    if (!token) {
+      setCheckingSession(false);
+      return;
+    }
+    setCheckingSession(true);
+    api.get<{ valid: boolean }>("/api/auth/verify")
+      .catch(() => undefined)
+      .finally(() => { if (active) setCheckingSession(false); });
+    return () => { active = false; };
+  }, [token]);
 
   if (!onboardingDone) {
     return (
@@ -36,6 +52,10 @@ function AppRoutes() {
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
+  }
+
+  if (checkingSession) {
+    return <div className="session-check"><span className="loading-spinner" /><strong>正在连接 HSL2 后端…</strong></div>;
   }
 
   return (

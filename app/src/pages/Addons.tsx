@@ -6,7 +6,7 @@ import { useToastStore } from "../store/toast";
 
 export default function Addons() {
   const addToast = useToastStore((state) => state.addToast); const [servers, setServers] = useState<Server[]>([]); const [serverId, setServerId] = useState(""); const [addons, setAddons] = useState<InstalledAddon[]>([]); const [folder, setFolder] = useState(""); const [selected, setSelected] = useState<InstalledAddon | null>(null); const [name, setName] = useState(""); const [loading, setLoading] = useState(false);
-  useEffect(() => { api.get<{ servers: Server[] }>("/api/servers").then(({ servers }) => setServers(servers.filter((item) => ["Forge", "Fabric", "Paper"].includes(item.server_type)))); }, []);
+  useEffect(() => { api.get<{ servers: Server[] }>("/api/servers").then(({ servers }) => setServers(servers.filter((item) => ["Forge", "NeoForge", "Fabric", "Paper"].includes(item.server_type)))).catch((error) => addToast(error.message || "无法读取服务器列表", "error")); }, []);
   async function load() { if (!serverId) return; setLoading(true); try { const data = await api.get<{ addons: InstalledAddon[]; folder: string }>(`/api/servers/${serverId}/addons`); setAddons(data.addons); setFolder(data.folder); setSelected(null); } catch (error: any) { addToast(error.message || "无法读取附加", "error"); } finally { setLoading(false); } }
   useEffect(() => { load(); }, [serverId]);
   function select(item: InstalledAddon) { setSelected(item); setName(item.name); }

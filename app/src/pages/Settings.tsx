@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useSettings } from "../store/settings";
-import { api } from "../lib/api";
+import { invoke } from "@tauri-apps/api/core";
 import { THEMES, applyTheme } from "../lib/themes";
 
 export default function Settings() {
@@ -20,7 +20,13 @@ export default function Settings() {
   }
   async function testConnection() {
     setTesting(true); setTestResult(null);
-    try { await api.get("/api/auth/verify"); setTestResult("success"); } catch { setTestResult("fail"); } finally { setTesting(false); }
+    try {
+      const endpoint = url.trim().replace(/\/$/, "");
+      const response = await invoke<{ status: number; body: string; error: string | null }>("proxy_fetch", {
+        req: { url: `${endpoint}/api/auth`, method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ auth_key: key.trim() }) },
+      });
+      setTestResult(!response.error && response.status >= 200 && response.status < 300 ? "success" : "fail");
+    } catch { setTestResult("fail"); } finally { setTesting(false); }
   }
 
   return <section className="page-shell">

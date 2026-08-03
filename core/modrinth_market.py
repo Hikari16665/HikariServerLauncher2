@@ -16,7 +16,12 @@ from .workspace import Server, ServerType
 
 API = "https://api.modrinth.com/v2"
 HEADERS = {"User-Agent": "HikariRevivalProject/HikariServerLauncher/2.0.0"}
-ALLOWED_TYPES = {ServerType.FORGE: ("mod", "forge", "mods"), ServerType.FABRIC: ("mod", "fabric", "mods"), ServerType.PAPER: ("plugin", "paper", "plugins")}
+ALLOWED_TYPES = {
+    ServerType.FORGE: ("mod", "forge", "mods"),
+    ServerType.NEOFORGE: ("mod", "neoforge", "mods"),
+    ServerType.FABRIC: ("mod", "fabric", "mods"),
+    ServerType.PAPER: ("plugin", "paper", "plugins"),
+}
 
 
 def server_market_info(server: Server) -> dict[str, str]:
