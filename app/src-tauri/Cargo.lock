@@ -88,8 +88,10 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-log",
  "tauri-plugin-opener",
+ "tempfile",
  "ureq",
  "url",
+ "uuid",
 ]
 
 [[package]]

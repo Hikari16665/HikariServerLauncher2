@@ -6,6 +6,7 @@ import type { FileItem } from "../lib/types";
 import { useSettings } from "../store/settings";
 import { useToastStore } from "../store/toast";
 import { showConfirm } from "./ConfirmDialog";
+import { uploadFileInChunks } from "../lib/chunkedUpload";
 
 interface Props {
   serverUuid: string;
@@ -19,10 +20,14 @@ export default function FileBrowser({ serverUuid }: Props) {
   const [editContent, setEditContent] = useState("");
   const [savingFile, setSavingFile] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const apiUrl = useSettings((s) => s.apiUrl);
   const token = useSettings((s) => s.token);
   const addToast = useToastStore((s) => s.addToast);
   const uploadRef = useRef<HTMLInputElement>(null);
+  const uploadControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => uploadControllerRef.current?.abort(), []);
 
   const fetchFiles = useCallback(async () => {
     setLoading(true);
@@ -119,11 +124,17 @@ export default function FileBrowser({ serverUuid }: Props) {
     }
 
     setUploadingFile(true);
+    setUploadProgress(0);
+    const controller = new AbortController();
+    uploadControllerRef.current = controller;
     try {
-      const base64 = await fileToBase64(file);
       const url = `${apiUrl}/api/servers/${serverUuid}/files/upload?path=${encodeURIComponent(path)}`;
-      const resp = await invoke<{ status: number; body: string; error: string | null }>("proxy_upload", {
-        req: { url, file_data: base64, file_name: file.name, token: token || "" },
+      const resp = await uploadFileInChunks({
+        url,
+        file,
+        token: token || "",
+        signal: controller.signal,
+        onProgress: setUploadProgress,
       });
       if (resp.error) {
         throw { message: resp.error, detail: `上传到 ${url}\n${resp.error}` };
@@ -136,9 +147,12 @@ export default function FileBrowser({ serverUuid }: Props) {
       fetchFiles();
       addToast("上传成功", "success");
     } catch (e: any) {
-      addToast(e.message || "上传失败", "error", e.detail);
+      if (e?.name === "AbortError") addToast("上传已取消", "info");
+      else addToast(e.message || "上传失败", "error", e.detail);
     } finally {
       setUploadingFile(false);
+      setUploadProgress(0);
+      uploadControllerRef.current = null;
       if (uploadRef.current) uploadRef.current.value = "";
     }
   }
@@ -192,8 +206,8 @@ export default function FileBrowser({ serverUuid }: Props) {
           style={{ flex: 1, fontSize: 12, padding: "4px 8px" }}
         />
         <button className="btn-ghost" onClick={() => fetchFiles()} style={{ fontSize: 12 }}>刷新</button>
-        <button className="btn-ghost" disabled={uploadingFile} onClick={() => uploadRef.current?.click()} style={{ fontSize: 12 }}>
-          {uploadingFile ? "正在上传…" : "上传"}
+        <button className="btn-ghost" onClick={() => uploadingFile ? uploadControllerRef.current?.abort() : uploadRef.current?.click()} style={{ fontSize: 12 }}>
+          {uploadingFile ? `取消上传 ${uploadProgress}%` : "上传"}
         </button>
         <input ref={uploadRef} type="file" onChange={handleUpload} style={{ display: "none" }} />
       </div>
@@ -294,20 +308,6 @@ export default function FileBrowser({ serverUuid }: Props) {
       </div>
     </div>
   );
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      // Remove data URL prefix
-      const base64 = result.split(",")[1];
-      resolve(base64);
-    };
-    reader.onerror = () => reject(new Error("读取文件失败"));
-    reader.readAsDataURL(file);
-  });
 }
 
 function formatSize(bytes: number): string {

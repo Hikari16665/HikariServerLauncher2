@@ -4,9 +4,11 @@ All paths are resolved relative to the server's root directory.
 Path traversal outside the server root is blocked.
 """
 
+import contextlib
 import mimetypes
 import os
 import shutil
+import tempfile
 from datetime import datetime
 from typing import Any, BinaryIO
 
@@ -240,12 +242,28 @@ def upload_stream(
     if filename.casefold() == ".hslmeta":
         return {"error": "Cannot overwrite server metadata file"}
 
+    temporary_path = ""
     try:
         os.makedirs(target_dir, exist_ok=True)
-        with open(target_file, "wb") as output:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            prefix=f".{filename}.",
+            suffix=".hsl-upload",
+            dir=target_dir,
+            delete=False,
+        ) as output:
+            temporary_path = output.name
             shutil.copyfileobj(stream, output, length=1024 * 1024)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary_path, target_file)
+        temporary_path = ""
     except Exception as e:
         return {"error": str(e)}
+    finally:
+        if temporary_path:
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(temporary_path)
     return _file_info(target_file, server_path)
 
 

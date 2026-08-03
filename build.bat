@@ -33,6 +33,12 @@ if !ERRORLEVEL! neq 0 (
     echo Frontend lint failed!
     exit /b 1
 )
+cd /d "%ROOT%\app\src-tauri"
+call cargo test --locked
+if !ERRORLEVEL! neq 0 (
+    echo Frontend native tests failed!
+    exit /b 1
+)
 cd /d "%ROOT%\launcher"
 call node --check ui\main.js
 if !ERRORLEVEL! neq 0 (

@@ -50,6 +50,25 @@ class ServerFileManagerSafetyTests(unittest.TestCase):
         )
         self.assertIsNotNone(mime)
 
+    def test_interrupted_upload_preserves_existing_file(self):
+        destination = os.path.join(self.root, "server.jar")
+        with open(destination, "wb") as output:
+            output.write(b"known-good")
+
+        class BrokenStream(io.BytesIO):
+            def read(self, size=-1):
+                data = super().read(size)
+                if not data:
+                    raise OSError("connection lost")
+                return data
+
+        result = upload_stream(self.root, "", BrokenStream(b"partial"), "server.jar")
+
+        self.assertIn("error", result)
+        with open(destination, "rb") as existing:
+            self.assertEqual(existing.read(), b"known-good")
+        self.assertFalse(any(name.endswith(".hsl-upload") for name in os.listdir(self.root)))
+
 
 if __name__ == "__main__":
     unittest.main()

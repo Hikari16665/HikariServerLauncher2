@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useNavigate } from "react-router-dom";
 import { useSettings } from "../store/settings";
 import { useToastStore } from "../store/toast";
 import { api } from "../lib/api";
+import { uploadFileInChunks } from "../lib/chunkedUpload";
 
 type PackFile = {
   key: string;
@@ -32,8 +32,6 @@ type Manifest = {
   files: PackFile[];
   rules_source: string;
 };
-type ProxyResponse = { status: number; body: string; error: string | null };
-
 export default function ImportServer() {
   const navigate = useNavigate();
   const addToast = useToastStore((state) => state.addToast);
@@ -42,10 +40,11 @@ export default function ImportServer() {
   const uploadingRef = useRef(false);
   const mountedRef = useRef(true);
   const inspectIdRef = useRef(0);
-  const readerRef = useRef<FileReader | null>(null);
+  const uploadControllerRef = useRef<AbortController | null>(null);
   const [stage, setStage] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [name, setName] = useState("");
   const [maxMemory, setMaxMemory] = useState(4096);
@@ -78,7 +77,7 @@ export default function ImportServer() {
     return () => {
       mountedRef.current = false;
       inspectIdRef.current += 1;
-      readerRef.current?.abort();
+      uploadControllerRef.current?.abort();
     };
   }, []);
 
@@ -95,16 +94,16 @@ export default function ImportServer() {
     const inspectId = ++inspectIdRef.current;
     uploadingRef.current = true;
     setUploading(true);
+    setUploadProgress(0);
+    const controller = new AbortController();
+    uploadControllerRef.current = controller;
     try {
-      const base64 = await fileToBase64(file, readerRef);
-      if (inspectId !== inspectIdRef.current || !mountedRef.current) return;
-      const response = await invoke<ProxyResponse>("proxy_upload", {
-        req: {
-          url: `${apiUrl}/api/mrpack/inspect`,
-          file_data: base64,
-          file_name: file.name,
-          token: token || "",
-        },
+      const response = await uploadFileInChunks({
+        url: `${apiUrl}/api/mrpack/inspect`,
+        file,
+        token: token || "",
+        signal: controller.signal,
+        onProgress: setUploadProgress,
       });
       if (response.error) throw new Error(response.error);
       const body = JSON.parse(response.body || "{}");
@@ -125,7 +124,8 @@ export default function ImportServer() {
     } finally {
       if (inspectId === inspectIdRef.current) {
         uploadingRef.current = false;
-        readerRef.current = null;
+        uploadControllerRef.current = null;
+        setUploadProgress(0);
         if (mountedRef.current) setUploading(false);
       }
     }
@@ -133,8 +133,8 @@ export default function ImportServer() {
 
   function cancelInspect() {
     inspectIdRef.current += 1;
-    readerRef.current?.abort();
-    readerRef.current = null;
+    uploadControllerRef.current?.abort();
+    uploadControllerRef.current = null;
     uploadingRef.current = false;
     setUploading(false);
     setDragging(false);
@@ -227,7 +227,7 @@ export default function ImportServer() {
             }}
           />
           <span>⇩</span>
-          <strong>{uploading ? "正在读取模组包…" : "拖入 .mrpack 文件"}</strong>
+          <strong>{uploading ? `正在读取模组包… ${uploadProgress}%` : "拖入 .mrpack 文件"}</strong>
           <p>
             {uploading
               ? "正在解析文件和模组元数据。"
@@ -240,7 +240,7 @@ export default function ImportServer() {
           <div>
             <span className="loading-spinner" />
             <strong>正在读取模组包</strong>
-            <p>正在上传并分析模组信息，可以取消或切换到其他页面。</p>
+            <p>正在分块上传并分析模组信息（{uploadProgress}%），可以取消或切换到其他页面。</p>
             <button className="btn-ghost" onClick={cancelInspect}>
               取消读取
             </button>
@@ -412,19 +412,6 @@ export default function ImportServer() {
   );
 }
 
-function fileToBase64(
-  file: File,
-  readerRef: React.MutableRefObject<FileReader | null>,
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    readerRef.current = reader;
-    reader.onload = () => resolve(String(reader.result).split(",")[1]);
-    reader.onerror = () => reject(reader.error || new Error("读取文件失败"));
-    reader.onabort = () => reject(new DOMException("读取已取消", "AbortError"));
-    reader.readAsDataURL(file);
-  });
-}
 function formatBytes(value: number) {
   if (!value) return "未知大小";
   const units = ["B", "KB", "MB", "GB"];

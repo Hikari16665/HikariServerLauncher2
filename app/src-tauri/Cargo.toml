@@ -28,3 +28,5 @@ ureq = "2"
 base64 = "0.22"
 url = "2"
 rfd = "0.15"
+tempfile = "3"
+uuid = { version = "1", features = ["v4"] }
