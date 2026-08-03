@@ -350,6 +350,29 @@ def _validate_server_settings(data: dict, require_version: bool = False) -> str 
     return None
 
 
+def _create_server_with_rollback(
+    task,
+    server_uuid: str,
+    server_type: ServerType,
+    java_version: str,
+    version: str,
+    mc_version: str,
+):
+    try:
+        return create_server_flow(
+            task,
+            server_uuid,
+            workspace,
+            server_type,
+            java_version=java_version,
+            version=version,
+            mc_version=mc_version,
+        )
+    except Exception:
+        workspace.remove_server(server_uuid, delete_files=True)
+        raise
+
+
 @app.route("/api/servers/create", methods=["POST"])
 def create_server():
     if not auth.require_auth(request):
@@ -375,7 +398,7 @@ def create_server():
             server_type=server_type,
             max_memory=data.get("max_memory", 1024),
             extra_args=data.get("extra_args", ""),
-            java_version=data.get("java_version", "25"),
+            java_version=data.get("java_version", "21"),
         )
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 400
@@ -383,17 +406,11 @@ def create_server():
     # Create task for async server setup (download jar, java, etc.)
     version = data.get("version", "")
     mc_version = data.get("mc_version", "")
-    java_version = data.get("java_version", "25")
+    java_version = data.get("java_version", "21")
 
     task = tm.create_composite_task(
-        execute_fn=lambda t, sp: create_server_flow(
-            t,
-            server.uuid,
-            workspace,
-            server_type,
-            java_version=java_version,
-            version=version,
-            mc_version=mc_version,
+        execute_fn=lambda t, sp: _create_server_with_rollback(
+            t, server.uuid, server_type, java_version, version, mc_version
         )
     )
     task.title = f"Create {server.name}"
@@ -420,11 +437,10 @@ def delete_server(server_uuid):
     if not server:
         return jsonify({"error": "Server not found"}), 404
 
-    with contextlib.suppress(FileNotFoundError):
-        shutil.rmtree(server.path)
-
-    # Remove from collection
-    workspace._servers.servers = [s for s in workspace._servers.servers if s.uuid != server_uuid]
+    try:
+        workspace.remove_server(server_uuid, delete_files=True)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
 
     return jsonify({"success": True})
 

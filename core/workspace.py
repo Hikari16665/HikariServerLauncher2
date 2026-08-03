@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import uuid
 from dataclasses import dataclass, field
@@ -103,7 +104,7 @@ class WorkspaceManager:
         if self._workspace_path is None:
             relative_path = ConfigKey.WORKSPACE_PATH.get()
             base_dir = (
-                sys._MEIPASS # type: ignore
+                sys._MEIPASS  # type: ignore
                 if getattr(sys, "frozen", False)
                 else os.path.dirname(os.path.dirname(__file__))
             )
@@ -246,3 +247,18 @@ class WorkspaceManager:
         self._servers.add(server)
 
         return server
+
+    def remove_server(self, server_uuid: str, delete_files: bool = False) -> bool:
+        server = self.get_server_by_uuid(server_uuid)
+        if server is None:
+            return False
+
+        if delete_files:
+            workspace_path = os.path.realpath(self._get_workspace_path())
+            server_path = os.path.realpath(server.path)
+            if os.path.dirname(server_path) != workspace_path:
+                raise ValueError("拒绝删除工作区之外的服务器目录")
+            shutil.rmtree(server_path, ignore_errors=True)
+
+        self._servers.servers = [item for item in self._servers.servers if item.uuid != server_uuid]
+        return True

@@ -131,10 +131,7 @@ def import_mrpack_flow(
         }
     except Exception:
         # A failed import must not leave a broken server in the workspace.
-        workspace._servers.servers = [
-            item for item in workspace._servers.servers if item.uuid != server.uuid
-        ]
-        shutil.rmtree(server.path, ignore_errors=True)
+        workspace.remove_server(server.uuid, delete_files=True)
         raise
     finally:
         shutil.rmtree(session_dir, ignore_errors=True)
