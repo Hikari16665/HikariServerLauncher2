@@ -22,6 +22,7 @@ export default function ImportServer() {
 
   async function inspect(file?: File) {
     if (!file || uploadingRef.current) return; if (!file.name.toLowerCase().endsWith(".mrpack")) { addToast("请选择 .mrpack 文件", "error"); return; }
+    if (file.size > 512 * 1024 * 1024) { addToast("mrpack 文件不能超过 512 MB", "error"); return; }
     uploadingRef.current = true;
     setUploading(true);
     try {

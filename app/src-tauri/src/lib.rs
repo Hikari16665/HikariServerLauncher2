@@ -23,8 +23,37 @@ struct ProxyResponse {
     error: Option<String>,
 }
 
+fn validate_proxy_url(value: &str) -> Result<(), String> {
+    let parsed = url::Url::parse(value).map_err(|_| "Invalid backend URL".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return Err("Only HTTP and HTTPS backend URLs are supported".to_string());
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("Credentials must not be embedded in the backend URL".to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn proxy_fetch(req: ProxyRequest) -> ProxyResponse {
+    if let Err(error) = validate_proxy_url(&req.url) {
+        return ProxyResponse {
+            status: 0,
+            body: String::new(),
+            error: Some(error),
+        };
+    }
+    if req
+        .body
+        .as_ref()
+        .is_some_and(|body| body.len() > 8 * 1024 * 1024)
+    {
+        return ProxyResponse {
+            status: 0,
+            body: String::new(),
+            error: Some("Request body exceeds 8 MB".to_string()),
+        };
+    }
     let result = tauri::async_runtime::spawn_blocking(move || {
         let method = req.method.to_uppercase();
         let mut r = match method.as_str() {
@@ -36,7 +65,12 @@ async fn proxy_fetch(req: ProxyRequest) -> ProxyResponse {
         };
 
         for (k, v) in &req.headers {
-            r = r.set(k, v);
+            if matches!(
+                k.to_ascii_lowercase().as_str(),
+                "authorization" | "content-type" | "accept"
+            ) {
+                r = r.set(k, v);
+            }
         }
 
         let result = if let Some(body) = &req.body {
@@ -49,17 +83,28 @@ async fn proxy_fetch(req: ProxyRequest) -> ProxyResponse {
             Ok(resp) => {
                 let status = resp.status();
                 let body = resp.into_string().unwrap_or_default();
-                ProxyResponse { status, body, error: None }
+                ProxyResponse {
+                    status,
+                    body,
+                    error: None,
+                }
             }
             Err(ureq::Error::Status(status, resp)) => {
                 let body = resp.into_string().unwrap_or_default();
-                ProxyResponse { status, body, error: None }
+                ProxyResponse {
+                    status,
+                    body,
+                    error: None,
+                }
             }
-            Err(ureq::Error::Transport(t)) => {
-                ProxyResponse { status: 0, body: String::new(), error: Some(t.to_string()) }
-            }
+            Err(ureq::Error::Transport(t)) => ProxyResponse {
+                status: 0,
+                body: String::new(),
+                error: Some(t.to_string()),
+            },
         }
-    }).await;
+    })
+    .await;
 
     match result {
         Ok(resp) => resp,
@@ -74,7 +119,7 @@ async fn proxy_fetch(req: ProxyRequest) -> ProxyResponse {
 #[derive(Debug, Serialize, Deserialize)]
 struct ProxyUploadRequest {
     url: String,
-    file_data: String,  // base64
+    file_data: String, // base64
     file_name: String,
     token: String,
 }
@@ -95,37 +140,86 @@ fn agent() -> &'static ureq::Agent {
 
 #[tauri::command]
 async fn proxy_upload(req: ProxyUploadRequest) -> ProxyResponse {
+    if let Err(error) = validate_proxy_url(&req.url) {
+        return ProxyResponse {
+            status: 0,
+            body: String::new(),
+            error: Some(error),
+        };
+    }
+    if req.file_data.len() > 700 * 1024 * 1024 {
+        return ProxyResponse {
+            status: 0,
+            body: String::new(),
+            error: Some("Upload exceeds 512 MB".to_string()),
+        };
+    }
+    if req.file_name.contains(['/', '\\', '\r', '\n']) || req.file_name.is_empty() {
+        return ProxyResponse {
+            status: 0,
+            body: String::new(),
+            error: Some("Invalid upload filename".to_string()),
+        };
+    }
     let result = tauri::async_runtime::spawn_blocking(move || {
         use base64::Engine as _;
         let file_bytes = match base64::engine::general_purpose::STANDARD.decode(&req.file_data) {
             Ok(b) => b,
-            Err(e) => return ProxyResponse { status: 0, body: String::new(), error: Some(format!("base64 decode: {e}")) },
+            Err(e) => {
+                return ProxyResponse {
+                    status: 0,
+                    body: String::new(),
+                    error: Some(format!("base64 decode: {e}")),
+                }
+            }
         };
 
         let boundary = "----HslUploadBoundary";
         let mut body = Vec::new();
         body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
-        body.extend_from_slice(format!("Content-Disposition: form-data; name=\"file\"; filename=\"{}\"\r\n", req.file_name).as_bytes());
+        body.extend_from_slice(
+            format!(
+                "Content-Disposition: form-data; name=\"file\"; filename=\"{}\"\r\n",
+                req.file_name
+            )
+            .as_bytes(),
+        );
         body.extend_from_slice(b"Content-Type: application/octet-stream\r\n\r\n");
         body.extend_from_slice(&file_bytes);
         body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
 
         let content_type = format!("multipart/form-data; boundary={boundary}");
-        match agent().post(&req.url).set("Authorization", &format!("Bearer {}", req.token)).set("Content-Type", &content_type).send_bytes(&body) {
+        match agent()
+            .post(&req.url)
+            .set("Authorization", &format!("Bearer {}", req.token))
+            .set("Content-Type", &content_type)
+            .send_bytes(&body)
+        {
             Ok(resp) => {
                 let status = resp.status();
                 let resp_body = resp.into_string().unwrap_or_default();
-                ProxyResponse { status, body: resp_body, error: None }
+                ProxyResponse {
+                    status,
+                    body: resp_body,
+                    error: None,
+                }
             }
             Err(ureq::Error::Status(status, resp)) => {
                 let resp_body = resp.into_string().unwrap_or_default();
-                ProxyResponse { status, body: resp_body, error: None }
+                ProxyResponse {
+                    status,
+                    body: resp_body,
+                    error: None,
+                }
             }
-            Err(ureq::Error::Transport(t)) => {
-                ProxyResponse { status: 0, body: String::new(), error: Some(t.to_string()) }
-            }
+            Err(ureq::Error::Transport(t)) => ProxyResponse {
+                status: 0,
+                body: String::new(),
+                error: Some(t.to_string()),
+            },
         }
-    }).await;
+    })
+    .await;
 
     match result {
         Ok(resp) => resp,
@@ -171,15 +265,20 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![proxy_fetch, proxy_upload, win_minimize, win_toggle_maximize, win_close, win_is_maximized, win_start_dragging])
+        .invoke_handler(tauri::generate_handler![
+            proxy_fetch,
+            proxy_upload,
+            win_minimize,
+            win_toggle_maximize,
+            win_close,
+            win_is_maximized,
+            win_start_dragging
+        ])
         .setup(|app| {
             // Build tray menu
             let show = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "退出").build(app)?;
-            let menu = MenuBuilder::new(app)
-                .item(&show)
-                .item(&quit)
-                .build()?;
+            let menu = MenuBuilder::new(app).item(&show).item(&quit).build()?;
 
             // Build tray icon
             let _tray = TrayIconBuilder::new()

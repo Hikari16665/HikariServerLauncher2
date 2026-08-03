@@ -40,6 +40,15 @@ export const useSettings = create<SettingsState>()(
       setTheme: (theme) => set({ theme }),
       clearAuth: () => set({ token: "", adminKey: "", tokenExpiry: 0 }),
     }),
-    { name: "hsl-settings" }
+    {
+      name: "hsl-settings",
+      // Keep credentials in memory only; localStorage is not a secret store.
+      partialize: (state) => ({
+        apiUrl: state.apiUrl,
+        useMirror: state.useMirror,
+        onboardingDone: state.onboardingDone,
+        theme: state.theme,
+      }),
+    }
   )
 );
