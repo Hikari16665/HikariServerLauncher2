@@ -319,6 +319,30 @@ def run_server_diagnostics(server_uuid):
         return jsonify({"error": f"服务器检测失败: {error}"}), 500
 
 
+def _validate_server_settings(data: dict, require_version: bool = False) -> str | None:
+    if "name" in data:
+        name = data.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return "服务器名称不能为空"
+        if len(name.strip()) > 80:
+            return "服务器名称不能超过 80 个字符"
+    if "max_memory" in data:
+        value = data.get("max_memory")
+        if isinstance(value, bool) or not isinstance(value, int):
+            return "最大内存必须是整数 MB"
+        if value < 512 or value > 1_048_576:
+            return "最大内存必须在 512 MB 到 1 TB 之间"
+    if "java_version" in data and str(data.get("java_version")) not in {"8", "11", "17", "21", "25"}:
+        return "不支持的 Java 版本"
+    if "extra_args" in data:
+        args = data.get("extra_args")
+        if not isinstance(args, str) or len(args) > 4096:
+            return "额外 JVM 参数不能超过 4096 个字符"
+    if require_version and not str(data.get("version") or "").strip():
+        return "请选择服务端版本"
+    return None
+
+
 @app.route("/api/servers/create", methods=["POST"])
 def create_server():
     if not auth.require_auth(request):
@@ -327,6 +351,10 @@ def create_server():
     data: dict = request.get_json()
     if not data:
         return jsonify({"success": False, "error": "No data provided"}), 400
+
+    validation_error = _validate_server_settings(data, require_version=True)
+    if validation_error:
+        return jsonify({"success": False, "error": validation_error}), 400
 
     server_type_str = data.get("server_type", ServerType.VANILLA.value)
     try:
@@ -406,6 +434,10 @@ def update_server(server_uuid):
     data: dict = request.get_json()
     if not data:
         return jsonify({"success": False, "error": "No data provided"}), 400
+
+    validation_error = _validate_server_settings(data)
+    if validation_error:
+        return jsonify({"success": False, "error": validation_error}), 400
 
     if "name" in data:
         server.name = data["name"]

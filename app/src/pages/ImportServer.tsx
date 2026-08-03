@@ -42,7 +42,7 @@ export default function ImportServer() {
   function toggle(key: string) { setFiles((items) => items.map((item) => item.key === key && item.supported ? { ...item, selected: !item.selected } : item)); }
   function selectSupported(value: boolean) { setFiles((items) => items.map((item) => item.supported ? { ...item, selected: value } : item)); }
   async function create() {
-    if (!manifest || !name.trim()) return; setCreating(true);
+    if (!manifest || !name.trim() || selectedCount === 0) return; setCreating(true);
     try {
       await api.post("/api/mrpack/import", { session_id: manifest.session_id, name: name.trim(), max_memory: maxMemory, java_version: javaVersion.replace("Java ", ""), extra_args: extraArgs, selected_paths: files.filter((item) => item.selected).map((item) => item.path) });
       addToast("模组包导入任务已创建", "success", `将安装 ${selectedCount} 个文件`); navigate("/");
