@@ -150,7 +150,8 @@ if exist "%ISCC%" (
         exit /b 1
     )
 ) else (
-    echo   WARNING: Inno Setup 6 was not found; installer generation was skipped.
+    echo   ERROR: Inno Setup 6 was not found; a complete release installer cannot be generated.
+    exit /b 1
 )
 
 echo.
