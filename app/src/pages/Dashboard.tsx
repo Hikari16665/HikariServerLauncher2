@@ -61,6 +61,7 @@ export default function Dashboard() {
   const [netData, setNetData] = useState<NetPoint[]>(netBuf);
   const [diskData, setDiskData] = useState<DiskPoint[]>(cachedDiskData);
   const [error, setError] = useState<string | null>(null);
+  const [diskError, setDiskError] = useState(false);
 
   const pushStats = useCallback((stats: SystemStats) => {
     const t = formatTime(stats.timestamp);
@@ -102,8 +103,9 @@ export default function Dashboard() {
         servers: s.server_usages || [],
       }));
       setDiskData(cachedDiskData);
+      setDiskError(false);
     } catch {
-      // silent
+      setDiskError(true);
     }
   }, []);
 
@@ -259,7 +261,7 @@ export default function Dashboard() {
             服务器硬盘用量
             {diskData.length === 0 && (
               <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 8, textTransform: "none", letterSpacing: 0 }}>
-                暂无历史数据
+                {diskError ? "磁盘历史加载失败" : "暂无历史数据"}
               </span>
             )}
           </div>
@@ -300,7 +302,7 @@ export default function Dashboard() {
                 fontSize: 12,
               }}
             >
-              等待数据采集...
+              {diskError ? "无法读取磁盘历史，请检查后端连接" : "等待数据采集..."}
             </div>
           )}
         </div>

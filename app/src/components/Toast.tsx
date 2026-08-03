@@ -9,13 +9,14 @@ const COLORS = {
 };
 
 function ToastItem({ t }: { t: Toast }) {
-  const [expanded, setExpanded] = useState(!!t.detail);
+  const [expanded, setExpanded] = useState(false);
   const removeToast = useToastStore((s) => s.removeToast);
   const c = COLORS[t.type];
   const hasDetail = !!t.detail;
 
   return (
     <motion.div
+      role={t.type === "error" ? "alert" : "status"}
       initial={{ opacity: 0, x: 60, scale: 0.95 }}
       animate={{ opacity: 1, x: 0, scale: 1 }}
       exit={{ opacity: 0, x: 60, scale: 0.95 }}
@@ -49,7 +50,7 @@ function ToastItem({ t }: { t: Toast }) {
       >
         <span style={{ wordBreak: "break-word", flex: 1 }}>{t.message}</span>
         <span style={{ fontSize: 10, opacity: 0.7, flexShrink: 0 }}>
-          {hasDetail ? (expanded ? "收起" : "详情") : "✕"}
+          {hasDetail ? (expanded ? "收起" : "查看详情") : "关闭"}
         </span>
       </div>
       <AnimatePresence>

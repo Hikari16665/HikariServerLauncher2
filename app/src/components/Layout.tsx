@@ -1,6 +1,8 @@
+import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import TitleBar from "./TitleBar";
 import TaskFloating from "./TaskFloating";
+import { api } from "../lib/api";
 
 const navigation = [
   ["/", "概览", "overview"],
@@ -15,15 +17,32 @@ const navigation = [
 ] as const;
 
 export default function Layout() {
+  const [connection, setConnection] = useState<"checking" | "connected" | "offline">("checking");
+
+  useEffect(() => {
+    let active = true;
+    const check = async () => {
+      try {
+        const result = await api.get<{ valid: boolean }>("/api/auth/verify");
+        if (active) setConnection(result.valid ? "connected" : "offline");
+      } catch {
+        if (active) setConnection("offline");
+      }
+    };
+    check();
+    const timer = window.setInterval(check, 10000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
+
   return <div className="app-shell">
     <TitleBar />
     <div className="app-frame">
       <aside className="app-nav">
         <div className="brand-block"><img src="/HSL.png" alt="HSL" /><div><strong>HSL2</strong><span>2.0.0</span></div></div>
         <nav className="nav-list">
-          {navigation.map(([to, label, icon]) => <NavLink end={to === "/"} key={to} to={to} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}><NavIcon name={icon} /><span>{label}</span></NavLink>)}
+          {navigation.map(([to, label, icon]) => <NavLink end={to === "/"} key={to} to={to} title={label} aria-label={label} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}><NavIcon name={icon} /><span>{label}</span></NavLink>)}
         </nav>
-        <div className="nav-footer"><span className="connection-dot" />后端已连接</div>
+        <div className={`nav-footer connection-${connection}`}><span className="connection-dot" />{connection === "connected" ? "后端已连接" : connection === "checking" ? "正在检测连接" : "后端连接中断"}</div>
       </aside>
       <main className="app-content"><Outlet /></main>
     </div>
