@@ -10,6 +10,7 @@ export function useWebSocket(
   const wsRef = useRef<WebSocket | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const disposedRef = useRef(false);
+  const retryCountRef = useRef(0);
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
 
@@ -37,11 +38,16 @@ export function useWebSocket(
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
+    ws.onopen = () => { retryCountRef.current = 0; };
     ws.onmessage = (e) => onMessageRef.current(e.data as string);
     ws.onclose = () => {
       if (wsRef.current !== ws) return;
       wsRef.current = null;
-      if (enabled && !disposedRef.current) retryRef.current = setTimeout(() => connect(true), 1500);
+      if (enabled && !disposedRef.current) {
+        const attempt = retryCountRef.current++;
+        const delay = Math.min(30000, 1000 * 2 ** Math.min(attempt, 5)) + Math.random() * 500;
+        retryRef.current = setTimeout(() => connect(true), delay);
+      }
     };
 
     return ws;
