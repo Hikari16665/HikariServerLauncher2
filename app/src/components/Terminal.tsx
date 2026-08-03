@@ -112,7 +112,7 @@ export default function Terminal({ serverUuid }: Props) {
       observer.disconnect();
       window.removeEventListener("resize", handleResize);
     };
-  }, [serverUuid]);
+  }, [serverUuid, send]);
 
   function toggleEncoding() {
     const next = encoding === "utf-8" ? "gbk" : "utf-8";

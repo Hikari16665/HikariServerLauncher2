@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSettings } from "../store/settings";
 
 export function useWebSocket(
@@ -8,68 +8,52 @@ export function useWebSocket(
   skipHistoryOnReconnect = false
 ) {
   const wsRef = useRef<WebSocket | null>(null);
-  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const disposedRef = useRef(false);
-  const retryCountRef = useRef(0);
   const onMessageRef = useRef(onMessage);
-  onMessageRef.current = onMessage;
+  const [reconnectNonce, setReconnectNonce] = useState(0);
+
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+  }, [onMessage]);
 
   const apiUrl = useSettings((s) => s.apiUrl);
   const token = useSettings((s) => s.token);
 
-  const connect = useCallback((isReconnect = false) => {
-    if (!enabled) return;
-
-    if (retryRef.current) {
-      clearTimeout(retryRef.current);
-      retryRef.current = null;
-    }
-    const previous = wsRef.current;
-    if (previous) {
-      previous.onclose = null;
-      previous.onmessage = null;
-      previous.close();
-    }
-
-    let wsUrl = apiUrl.replace(/^http/, "ws") + path;
-    if (skipHistoryOnReconnect && isReconnect) {
-      wsUrl += "?skip_history=1";
-    }
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "auth", token: token || "" }));
-      retryCountRef.current = 0;
-    };
-    ws.onmessage = (e) => onMessageRef.current(e.data as string);
-    ws.onclose = () => {
-      if (wsRef.current !== ws) return;
-      wsRef.current = null;
-      if (enabled && !disposedRef.current) {
-        const attempt = retryCountRef.current++;
-        const delay = Math.min(30000, 1000 * 2 ** Math.min(attempt, 5)) + Math.random() * 500;
-        retryRef.current = setTimeout(() => connect(true), delay);
-      }
-    };
-
-    return ws;
-  }, [apiUrl, path, enabled, token, skipHistoryOnReconnect]);
-
   useEffect(() => {
-    disposedRef.current = false;
-    const ws = connect(false);
+    if (!enabled) return;
+    let disposed = false;
+    let retryCount = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const connect = (isReconnect: boolean) => {
+      if (disposed) return;
+      let wsUrl = apiUrl.replace(/^http/, "ws") + path;
+      if (skipHistoryOnReconnect && isReconnect) wsUrl += "?skip_history=1";
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: "auth", token: token || "" }));
+        retryCount = 0;
+      };
+      ws.onmessage = (event) => onMessageRef.current(event.data as string);
+      ws.onclose = () => {
+        if (wsRef.current === ws) wsRef.current = null;
+        if (disposed) return;
+        const delay =
+          Math.min(30000, 1000 * 2 ** Math.min(retryCount++, 5)) + Math.random() * 500;
+        retryTimer = setTimeout(() => connect(true), delay);
+      };
+    };
+
+    connect(reconnectNonce > 0);
     return () => {
-      disposedRef.current = true;
-      if (ws) {
-        ws.onclose = null;
-        ws.onmessage = null;
-      }
+      disposed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      const ws = wsRef.current;
+      if (ws) ws.onclose = null;
       ws?.close();
-      if (retryRef.current) clearTimeout(retryRef.current);
       wsRef.current = null;
     };
-  }, [connect]);
+  }, [apiUrl, path, enabled, token, skipHistoryOnReconnect, reconnectNonce]);
 
   return {
     send: useCallback((data: string) => {
@@ -78,7 +62,7 @@ export function useWebSocket(
       }
     }, []),
     reconnect: useCallback(() => {
-      connect(true);
-    }, [connect]),
+      setReconnectNonce((value) => value + 1);
+    }, []),
   };
 }

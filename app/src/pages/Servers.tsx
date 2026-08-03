@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import type { Server, ServerStatus } from "../lib/types";
@@ -16,8 +16,8 @@ export default function Servers() {
   const [query, setQuery] = useState("");
   const [stateFilter, setStateFilter] = useState<"all" | "running" | "stopped">("all");
 
-  const load = () => api.get<{ servers: Server[] }>("/api/servers").then(({ servers }) => setServers(servers)).catch((error) => addToast("无法加载服务器", "error", error?.detail)).finally(() => setLoading(false));
-  useEffect(() => { load(); }, []);
+  const load = useCallback(() => api.get<{ servers: Server[] }>("/api/servers").then(({ servers }) => setServers(servers)).catch((error) => addToast("无法加载服务器", "error", error?.detail)).finally(() => setLoading(false)), [addToast]);
+  useEffect(() => { load(); }, [load]);
   useEffect(() => { if (!servers.length) return; const refresh = () => servers.forEach((server) => api.get<ServerStatus>(`/api/servers/${server.uuid}/status`).then((status) => { setStatuses((current) => ({ ...current, [server.uuid]: status })); setStatusErrors((current) => { const next = new Set(current); next.delete(server.uuid); return next; }); }).catch(() => setStatusErrors((current) => new Set(current).add(server.uuid)))); refresh(); const timer = setInterval(refresh, 5000); return () => clearInterval(timer); }, [servers]);
 
   const visible = useMemo(() => servers.filter((server) => {

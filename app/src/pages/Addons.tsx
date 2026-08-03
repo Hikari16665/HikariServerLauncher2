@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { InstalledAddon, Server } from "../lib/types";
 import { showConfirm } from "../components/ConfirmDialog";
@@ -29,8 +29,8 @@ export default function Addons() {
       .catch((error) =>
         addToast(error.message || "无法读取服务器列表", "error"),
       );
-  }, []);
-  async function load() {
+  }, [addToast]);
+  const load = useCallback(async () => {
     if (!serverId) return;
     const requestId = ++loadRequestRef.current;
     setLoadError("");
@@ -52,7 +52,7 @@ export default function Addons() {
     } finally {
       if (requestId === loadRequestRef.current) setLoading(false);
     }
-  }
+  }, [serverId, addToast]);
   useEffect(() => {
     loadRequestRef.current += 1;
     setAddons([]);
@@ -60,7 +60,7 @@ export default function Addons() {
     setFolder("");
     setLoadError("");
     load();
-  }, [serverId]);
+  }, [serverId, load]);
   function select(item: InstalledAddon) {
     setSelected(item);
     setName(item.name);

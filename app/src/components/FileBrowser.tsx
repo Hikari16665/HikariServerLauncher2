@@ -37,7 +37,7 @@ export default function FileBrowser({ serverUuid }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [serverUuid, path]);
+  }, [serverUuid, path, addToast]);
 
   useEffect(() => {
     fetchFiles();

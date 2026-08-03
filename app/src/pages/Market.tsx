@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { MarketProject, MarketVersion, Server } from "../lib/types";
 import { useToastStore } from "../store/toast";
@@ -49,7 +49,7 @@ export default function Market() {
       .catch((error) =>
         addToast(error.message || "无法读取服务器列表", "error"),
       );
-  }, []);
+  }, [addToast]);
   useEffect(() => {
     const requestId = ++infoRequestRef.current;
     searchRequestRef.current += 1;
@@ -90,9 +90,12 @@ export default function Market() {
       .finally(() => {
         if (requestId === infoRequestRef.current) setLoadingInfo(false);
       });
-  }, [serverId]);
+  }, [serverId, addToast]);
+  const runAutomaticSearch = useEffectEvent(() => {
+    void search();
+  });
   useEffect(() => {
-    if (info) search();
+    if (info) runAutomaticSearch();
   }, [info, category, sort]);
   async function search() {
     if (!serverId || !info) return;

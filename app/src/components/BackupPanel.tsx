@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { api } from "../lib/api";
 import type { BackupInfo } from "../lib/types";
@@ -20,7 +20,7 @@ export default function BackupPanel({ serverUuid }: Props) {
   const tasks = useTaskStore((state) => state.tasks);
   const addToast = useToastStore((s) => s.addToast);
 
-  async function fetchBackups() {
+  const fetchBackups = useCallback(async () => {
     try {
       const data = await api.get<{ backups: BackupInfo[] }>(
         `/api/servers/${serverUuid}/backups`
@@ -31,11 +31,11 @@ export default function BackupPanel({ serverUuid }: Props) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [serverUuid]);
 
   useEffect(() => {
     fetchBackups();
-  }, [serverUuid]);
+  }, [fetchBackups]);
 
   useEffect(() => {
     if (!createTaskId) return;
@@ -49,7 +49,7 @@ export default function BackupPanel({ serverUuid }: Props) {
     }
     setCreating(false);
     setCreateTaskId(null);
-  }, [tasks, createTaskId]);
+  }, [tasks, createTaskId, fetchBackups, addToast]);
 
   useEffect(() => {
     if (!restoreTaskId) return;
@@ -59,7 +59,7 @@ export default function BackupPanel({ serverUuid }: Props) {
     else addToast(task.error_message || "恢复失败", "error");
     setRestoring(null);
     setRestoreTaskId(null);
-  }, [tasks, restoreTaskId]);
+  }, [tasks, restoreTaskId, addToast]);
 
   async function handleCreate() {
     setCreating(true);
