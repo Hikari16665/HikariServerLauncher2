@@ -15,6 +15,7 @@ button { font: inherit; }
 .hero p { margin: 0; color: #7a5a6a; font-size: 13px; }
 .state { font-size: 11px; font-style: normal; color: #7a5a6a; background: rgba(255,255,255,.7); border: 1px solid #e8c4d4; border-radius: 99px; padding: 6px 10px; }
 .state.online { color: #2d9d6f; border-color: rgba(45,157,111,.3); background: rgba(45,157,111,.08); }
+.state.error { color: #d94848; border-color: rgba(217,72,72,.3); background: rgba(217,72,72,.08); }
 .modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .mode { min-height: 166px; position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left; padding: 18px; color: #2d1a24; background: rgba(255,255,255,.72); border: 1px solid #e8c4d4; border-radius: 15px; cursor: pointer; transition: .18s ease; }
 .mode:hover { transform: translateY(-2px); border-color: #d44a7a; box-shadow: 0 10px 26px rgba(180,60,100,.1); }

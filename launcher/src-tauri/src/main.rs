@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::{
     env,
+    fs::{self, OpenOptions},
+    io::{Read, Write},
     net::{SocketAddr, TcpStream},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -24,6 +26,7 @@ struct LauncherStatus {
     backend_available: bool,
     frontend_available: bool,
     backend_running: bool,
+    port_conflict: bool,
     autostart_enabled: bool,
     install_dir: String,
     admin_key: Option<String>,
@@ -103,26 +106,73 @@ fn read_admin_key(root: &Path) -> Option<String> {
     })
 }
 
-fn backend_is_running() -> bool {
+#[derive(PartialEq)]
+enum BackendProbe {
+    Ready,
+    PortConflict,
+    Offline,
+}
+
+fn probe_backend() -> BackendProbe {
     let address = SocketAddr::from(([127, 0, 0, 1], 5000));
-    TcpStream::connect_timeout(&address, Duration::from_millis(250)).is_ok()
+    let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(350)) else {
+        return BackendProbe::Offline;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(700)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(700)));
+    if stream
+        .write_all(b"GET /api/ping HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        .is_err()
+    {
+        return BackendProbe::PortConflict;
+    }
+    let mut response = String::new();
+    if stream.read_to_string(&mut response).is_ok()
+        && response.starts_with("HTTP/1.1 200")
+        && response
+            .split("\r\n\r\n")
+            .nth(1)
+            .is_some_and(|body| body.trim() == "pong!")
+    {
+        BackendProbe::Ready
+    } else {
+        BackendProbe::PortConflict
+    }
+}
+
+fn backend_is_running() -> bool {
+    probe_backend() == BackendProbe::Ready
 }
 
 fn hidden_command(path: &Path, root: &Path) -> Command {
+    let log_dir = root.join("logs");
+    let _ = fs::create_dir_all(&log_dir);
+    let output = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_dir.join("launcher-backend.log"));
     let mut command = Command::new(path);
-    command
-        .current_dir(root)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    command.current_dir(root).stdin(Stdio::null());
+    if let Ok(stdout) = output {
+        let stderr = stdout.try_clone().ok();
+        command.stdout(Stdio::from(stdout));
+        command.stderr(stderr.map(Stdio::from).unwrap_or_else(Stdio::null));
+    } else {
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+    }
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     command
 }
 
 fn start_backend(root: &Path) -> Result<bool, String> {
-    if backend_is_running() {
-        return Ok(false);
+    match probe_backend() {
+        BackendProbe::Ready => return Ok(false),
+        BackendProbe::PortConflict => return Err(
+            "Port 5000 is occupied by another program, not HSL2. Close it or change the HSL2 port."
+                .to_string(),
+        ),
+        BackendProbe::Offline => {}
     }
 
     let path = backend_path(root);
@@ -209,10 +259,12 @@ fn update_autostart(_enabled: bool) -> Result<(), String> {
 #[tauri::command]
 fn get_status() -> LauncherStatus {
     let root = install_dir().unwrap_or_default();
+    let probe = probe_backend();
     LauncherStatus {
         backend_available: backend_path(&root).exists(),
         frontend_available: frontend_path(&root).exists(),
-        backend_running: backend_is_running(),
+        backend_running: probe == BackendProbe::Ready,
+        port_conflict: probe == BackendProbe::PortConflict,
         autostart_enabled: autostart_enabled(),
         install_dir: root.display().to_string(),
         admin_key: read_admin_key(&root),

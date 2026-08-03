@@ -10,6 +10,7 @@ const adminKey = document.querySelector("#admin-key");
 const copyKeyButton = document.querySelector("#copy-key");
 let selectedMode = "full";
 let autostartEnabled = false;
+let refreshing = false;
 
 function showMessage(text, kind = "") {
   message.textContent = text;
@@ -39,11 +40,15 @@ copyKeyButton.addEventListener("click", async () => {
 });
 
 async function refreshStatus() {
+  if (refreshing) return;
+  refreshing = true;
   try {
     const status = await invoke("get_status");
     installDir.textContent = status.install_dir || "未找到 HSL2 发布目录";
     backendState.textContent = status.backend_running ? "后端运行中" : "后端未运行";
+    if (status.port_conflict) backendState.textContent = "5000 端口被其他程序占用";
     backendState.classList.toggle("online", status.backend_running);
+    backendState.classList.toggle("error", status.port_conflict);
     renderAutostart(status.autostart_enabled);
     showAdminKey(status.admin_key);
     modeButtons.find(button => button.dataset.mode === "frontend").disabled = !status.frontend_available;
@@ -52,6 +57,8 @@ async function refreshStatus() {
     }
   } catch (error) {
     showMessage(String(error), "error");
+  } finally {
+    refreshing = false;
   }
 }
 
@@ -93,3 +100,6 @@ launchButton.addEventListener("click", async () => {
 });
 
 refreshStatus();
+setInterval(() => {
+  if (!document.hidden && !launchButton.disabled) refreshStatus();
+}, 2500);
