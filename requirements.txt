@@ -12,4 +12,5 @@ flask-sock
 javaproperties
 flask-cors
 ruff
+pytest
 remotezip
