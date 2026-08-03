@@ -239,6 +239,7 @@ class WorkspaceManager:
             max_memory=max_memory,
             extra_args=extra_args,
             path=server_dir,
+            java_version=java_version or "21",
             valid=True,
         )
 
