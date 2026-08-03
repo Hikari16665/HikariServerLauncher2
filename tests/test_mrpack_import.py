@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import unittest
@@ -9,17 +10,144 @@ from unittest.mock import Mock, patch
 import httpx
 
 from core.mrpack_import import (
+    _download_files,
     _jar_mod_ids,
     _load_rules,
     _loader_info,
     _parse_rules,
+    _read_index,
     _remove_incompatible_files,
     _rule_matches,
     _safe_relative,
 )
+from core.workspace import Server, ServerType
+
+
+class FakeDownloadResponse:
+    def __init__(self, payload: bytes):
+        self.payload = payload
+        self.url = "https://cdn.modrinth.com/data/example.jar"
+        self.headers = {"content-length": str(len(payload))}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def raise_for_status(self):
+        pass
+
+    def iter_bytes(self, _size):
+        yield self.payload
+
+
+class FakeDownloadClient:
+    def __init__(self, payload: bytes):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def stream(self, _method, _url):
+        return FakeDownloadResponse(self.payload)
 
 
 class MrpackImportTests(unittest.TestCase):
+    def test_index_rejects_duplicate_destination_paths(self):
+        index = {
+            "formatVersion": 1,
+            "game": "minecraft",
+            "versionId": "test",
+            "name": "Test Pack",
+            "dependencies": {"minecraft": "1.21.1", "fabric-loader": "0.16.10"},
+            "files": [
+                {
+                    "path": "mods/example.jar",
+                    "fileSize": 1,
+                    "hashes": {"sha1": "0" * 40, "sha512": "0" * 128},
+                    "downloads": ["https://cdn.modrinth.com/data/example.jar"],
+                },
+                {
+                    "path": "mods/example.jar",
+                    "fileSize": 1,
+                    "hashes": {"sha1": "1" * 40, "sha512": "1" * 128},
+                    "downloads": ["https://cdn.modrinth.com/data/example-2.jar"],
+                },
+            ],
+        }
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as pack:
+            pack.writestr("modrinth.index.json", json.dumps(index))
+
+        with TemporaryDirectory() as temporary:
+            path = Path(temporary, "pack.mrpack")
+            path.write_bytes(archive.getvalue())
+            with self.assertRaisesRegex(ValueError, "重复路径"):
+                _read_index(path)
+
+    @patch("core.mrpack_import.httpx.Client")
+    def test_hash_failure_does_not_destroy_existing_mod(self, client):
+        client.return_value = FakeDownloadClient(b"corrupt")
+        with TemporaryDirectory() as temporary:
+            server = Server(
+                name="Test",
+                server_type=ServerType.FABRIC,
+                max_memory=2048,
+                extra_args="",
+                path=temporary,
+                uuid="test",
+            )
+            destination = Path(temporary, "mods", "example.jar")
+            destination.parent.mkdir()
+            destination.write_bytes(b"known-good")
+            item = {
+                "path": "mods/example.jar",
+                "title": "Example",
+                "downloads": ["https://cdn.modrinth.com/data/example.jar"],
+                "hashes": {"sha1": "0" * 40, "sha512": "0" * 128},
+            }
+
+            with self.assertRaisesRegex(RuntimeError, "哈希不匹配"):
+                _download_files(Mock(), server, [item])
+
+            self.assertEqual(destination.read_bytes(), b"known-good")
+            self.assertEqual(list(destination.parent.glob(".*.hsl-part")), [])
+
+    @patch("core.mrpack_import.httpx.Client")
+    def test_verified_download_atomically_replaces_existing_mod(self, client):
+        payload = b"verified jar bytes"
+        client.return_value = FakeDownloadClient(payload)
+        with TemporaryDirectory() as temporary:
+            server = Server(
+                name="Test",
+                server_type=ServerType.FABRIC,
+                max_memory=2048,
+                extra_args="",
+                path=temporary,
+                uuid="test",
+            )
+            destination = Path(temporary, "mods", "example.jar")
+            destination.parent.mkdir()
+            destination.write_bytes(b"old")
+            item = {
+                "path": "mods/example.jar",
+                "title": "Example",
+                "downloads": ["https://cdn.modrinth.com/data/example.jar"],
+                "hashes": {
+                    "sha1": hashlib.sha1(payload).hexdigest(),
+                    "sha512": hashlib.sha512(payload).hexdigest(),
+                },
+            }
+
+            _download_files(Mock(), server, [item])
+
+            self.assertEqual(destination.read_bytes(), payload)
+            self.assertEqual(list(destination.parent.glob(".*.hsl-part")), [])
+
     def test_loader_version_is_preserved(self):
         info = _loader_info({"minecraft": "1.21.1", "fabric-loader": "0.16.10"})
         self.assertEqual(info["server_type"], "Fabric")
@@ -39,20 +167,14 @@ class MrpackImportTests(unittest.TestCase):
         self.assertFalse(_rule_matches(rules[3], "gamma", "1.20.4", {"gamma"}))
 
     def test_incompatibility_rule_supports_project_or_filename_prefix(self):
-        rule = _parse_rules(
-            "id=jecharacters* game=* desc=client-only pinyin search\n"
-        )[0]
+        rule = _parse_rules("id=jecharacters* game=* desc=client-only pinyin search\n")[0]
 
         self.assertTrue(_rule_matches(rule, "jecharacters", "1.21.1", set()))
-        self.assertTrue(
-            _rule_matches(rule, "jecharacters-1.21-fabric-4.5.22", "1.21.1", set())
-        )
+        self.assertTrue(_rule_matches(rule, "jecharacters-1.21-fabric-4.5.22", "1.21.1", set()))
         self.assertFalse(_rule_matches(rule, "jec", "1.21.1", set()))
 
     def test_slug_rule_matches_compact_loader_mod_id(self):
-        rule = _parse_rules(
-            "id=cit-resewn game=* desc=client-only custom item textures\n"
-        )[0]
+        rule = _parse_rules("id=cit-resewn game=* desc=client-only custom item textures\n")[0]
 
         self.assertTrue(_rule_matches(rule, "cit-resewn", "1.21.1", set()))
         self.assertTrue(_rule_matches(rule, "citresewn", "1.21.1", set()))
@@ -76,9 +198,7 @@ class MrpackImportTests(unittest.TestCase):
 
     @patch("core.mrpack_import._lookup_project_identifiers", return_value={})
     def test_override_mod_is_removed_by_loader_mod_id(self, _lookup):
-        rules = _parse_rules(
-            "id=cit-resewn game=* desc=client-only custom item textures\n"
-        )
+        rules = _parse_rules("id=cit-resewn game=* desc=client-only custom item textures\n")
         task = Mock()
         with TemporaryDirectory() as temporary:
             server = Path(temporary)

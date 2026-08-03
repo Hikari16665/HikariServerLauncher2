@@ -58,7 +58,7 @@ from core.modrinth_market import (
     update_addon,
     version_details,
 )
-from core.mrpack_import import import_mrpack_flow, inspect_mrpack
+from core.mrpack_import import MAX_PACK_FILES, import_mrpack_flow, inspect_mrpack
 from core.tui import TUI
 from core.version_resolver import (
     get_april_versions,
@@ -1320,13 +1320,23 @@ def import_mrpack_endpoint():
     if not auth.require_auth(request):
         return jsonify({"error": auth.get_auth_error(request)}), 401
     data = request.get_json() or {}
-    if not str(data.get("name", "")).strip():
-        return jsonify({"error": "请输入服务器名称"}), 400
+    metadata = {
+        "name": data.get("name"),
+        "max_memory": data.get("max_memory", 4096),
+        "java_version": data.get("java_version", "21"),
+        "extra_args": data.get("extra_args", ""),
+    }
+    validation_error = _validate_server_settings(metadata)
+    if validation_error:
+        return jsonify({"error": validation_error}), 400
     session_id = str(data.get("session_id", ""))
     selected_paths = data.get("selected_paths") or []
-    if not isinstance(selected_paths, list):
+    if not isinstance(selected_paths, list) or not selected_paths:
         return jsonify({"error": "selected_paths 必须为数组"}), 400
-    metadata = {key: data.get(key) for key in ("name", "max_memory", "java_version", "extra_args")}
+    if len(selected_paths) > MAX_PACK_FILES or not all(
+        isinstance(path, str) and len(path) <= 1024 for path in selected_paths
+    ):
+        return jsonify({"error": "selected_paths 包含无效项目"}), 400
     task = tm.create_composite_task(
         execute_fn=lambda task, _: import_mrpack_flow(task, session_id, selected_paths, metadata, workspace)
     )
