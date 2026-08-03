@@ -15,7 +15,13 @@ Token 通过 `/api/auth` 获取，有效期 12 小时。
 **方式二：Admin Key**
 在请求 Body 中传入 `auth_key` 字段。
 
-**WebSocket 鉴权**：在连接 URL 中传入 `?token=<token>` 查询参数。
+**WebSocket 鉴权**：建立连接后必须在 5 秒内发送首条鉴权消息：
+
+```json
+{"type": "auth", "token": "<token>"}
+```
+
+不要将 token 放在 WebSocket URL 中，以免凭据进入代理日志或 URL 历史。
 
 ---
 
@@ -764,11 +770,9 @@ URL 中的 `:path` 对应配置文件的路径（如 `server.properties`）。
 #### WS /api/servers/:uuid/terminal
 实时服务器控制台终端。双向通信。
 
-```
-ws://127.0.0.1:5000/api/servers/550e8400-.../terminal?token=<token>
-```
+`ws://127.0.0.1:5000/api/servers/550e8400-.../terminal`
 
-**连接时**：服务器返回连接确认，若服务器已运行则回放历史日志缓冲（最近 2000 行），之后实时推送 stdout。
+**连接时**：客户端先发送 `auth` 消息。鉴权成功后服务器返回连接确认；若服务器已运行则回放历史日志缓冲（最近 2000 行），之后实时推送 stdout。
 
 **服务端 → 客户端消息**：
 
@@ -778,9 +782,10 @@ ws://127.0.0.1:5000/api/servers/550e8400-.../terminal?token=<token>
 | `log` | 服务器 stdout 行 | `{"type":"log","line":"[12:00:00 INFO]: Done (3.520s)! For help, type \"help\""}` |
 | `error` | 错误信息 | `{"type":"error","message":"Server is not running"}` |
 
-**客户端 → 服务端消息**：
+**客户端 → 服务端消息**（第一条必须是鉴权消息）：
 
 ```json
+{"type": "auth", "token": "<token>"}
 {"type": "command", "command": "say Hello players!"}
 ```
 
@@ -788,14 +793,19 @@ ws://127.0.0.1:5000/api/servers/550e8400-.../terminal?token=<token>
 
 **完整示例** (使用 wscat)：
 ```
-wscat -c "ws://127.0.0.1:5000/api/servers/xxx/terminal?token=yyy"
+wscat -c "ws://127.0.0.1:5000/api/servers/xxx/terminal"
 Connected (press CTRL+C to quit)
+> {"type":"auth","token":"yyy"}
 < {"type":"status","message":"Connected to terminal for 我的服务器","server_uuid":"xxx","server_name":"我的服务器","running":true}
 < {"type":"log","line":"[12:00:01 INFO]: Starting minecraft server..."}
 < {"type":"log","line":"[12:00:04 INFO]: Done! For help, type \"help\""}
 > {"type":"command","command":"list"}
 < {"type":"log","line":"[12:00:10 INFO]: There are 0 of a max 20 players online:"}
 ```
+
+#### WS /api/tasks/stream
+
+实时推送任务快照和进度。连接后同样必须先发送 `auth` 消息；鉴权成功后服务端立即发送 `task_snapshot`，之后推送任务创建、进度、子任务与完成状态，无需轮询。
 
 ---
 
