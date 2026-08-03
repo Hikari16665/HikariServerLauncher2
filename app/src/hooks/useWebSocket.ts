@@ -31,14 +31,17 @@ export function useWebSocket(
       previous.close();
     }
 
-    let wsUrl = apiUrl.replace(/^http/, "ws") + path + `?token=${token || ""}`;
+    let wsUrl = apiUrl.replace(/^http/, "ws") + path;
     if (skipHistoryOnReconnect && isReconnect) {
-      wsUrl += "&skip_history=1";
+      wsUrl += "?skip_history=1";
     }
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
-    ws.onopen = () => { retryCountRef.current = 0; };
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: "auth", token: token || "" }));
+      retryCountRef.current = 0;
+    };
     ws.onmessage = (e) => onMessageRef.current(e.data as string);
     ws.onclose = () => {
       if (wsRef.current !== ws) return;

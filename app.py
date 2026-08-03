@@ -1175,14 +1175,29 @@ def list_java_versions():
 
 if sock is not None:
 
+    def authenticate_websocket(ws) -> bool:
+        """Authenticate a WebSocket without placing credentials in its URL."""
+        try:
+            raw = ws.receive(timeout=5)
+            message = json.loads(raw or "{}")
+        except (TimeoutError, TypeError, ValueError, json.JSONDecodeError):
+            message = {}
+
+        token = message.get("token", "") if message.get("type") == "auth" else ""
+        if token and auth.validate_token(token):
+            return True
+
+        try:
+            ws.send(json.dumps({"type": "error", "message": "Unauthorized"}))
+            ws.close()
+        except Exception:
+            pass
+        return False
+
     @sock.route("/api/tasks/stream")
     def task_stream(ws):
         """Push task snapshots. The client never needs to poll task endpoints."""
-        token = ws_request.args.get("token", "")
-        valid = auth.validate_token(token) if token else auth.require_auth(ws_request)
-        if not valid:
-            ws.send(json.dumps({"type": "error", "message": "Unauthorized"}))
-            ws.close()
+        if not authenticate_websocket(ws):
             return
 
         send_lock = threading.Lock()
@@ -1203,24 +1218,7 @@ if sock is not None:
 
     @sock.route("/api/servers/<server_uuid>/terminal")
     def server_terminal(ws, server_uuid):
-        # Authenticate via query parameter
-
-        token = ws_request.args.get("token", "")
-        if token:
-            valid = auth.validate_token(token)
-        else:
-            valid = auth.require_auth(ws_request)
-
-        if not valid:
-            ws.send(
-                json.dumps(
-                    {
-                        "type": "error",
-                        "message": auth.get_auth_error(ws_request) or "Unauthorized",
-                    }
-                )
-            )
-            ws.close()
+        if not authenticate_websocket(ws):
             return
 
         server = workspace.get_server_by_uuid(server_uuid)
