@@ -1,4 +1,5 @@
 import secrets
+import threading
 import time
 from typing import Any, Optional
 
@@ -9,32 +10,46 @@ from .logger import Logger
 
 
 class TokenManager:
+    MAX_ACTIVE_TOKENS = 256
+
     def __init__(self):
         self._tokens: dict[str, dict[str, Any]] = {}
+        self._lock = threading.Lock()
 
     def generate_token(self) -> str:
         token = secrets.token_urlsafe(32)
-        expiry = time.time() + (12 * 60 * 60)
-        self._tokens[token] = {"expiry": expiry, "created_at": time.time()}
+        now = time.time()
+        with self._lock:
+            self._cleanup_expired_locked(now)
+            while len(self._tokens) >= self.MAX_ACTIVE_TOKENS:
+                oldest = min(self._tokens, key=lambda item: self._tokens[item]["created_at"])
+                del self._tokens[oldest]
+            self._tokens[token] = {"expiry": now + (12 * 60 * 60), "created_at": now}
         return token
 
     def validate_token(self, token: str) -> bool:
-        if token not in self._tokens:
-            return False
-        if time.time() > self._tokens[token]["expiry"]:
-            del self._tokens[token]
-            return False
-        return True
+        with self._lock:
+            data = self._tokens.get(token)
+            if data is None:
+                return False
+            if time.time() > data["expiry"]:
+                del self._tokens[token]
+                return False
+            return True
 
     def revoke_token(self, token: str) -> bool:
-        if token in self._tokens:
-            del self._tokens[token]
-            return True
-        return False
+        with self._lock:
+            if token in self._tokens:
+                del self._tokens[token]
+                return True
+            return False
 
     def cleanup_expired(self):
-        current_time = time.time()
-        expired = [t for t, data in self._tokens.items() if current_time > data["expiry"]]
+        with self._lock:
+            self._cleanup_expired_locked(time.time())
+
+    def _cleanup_expired_locked(self, current_time: float) -> None:
+        expired = [token for token, data in self._tokens.items() if current_time > data["expiry"]]
         for t in expired:
             del self._tokens[t]
 
@@ -129,9 +144,6 @@ class AuthManager:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             return auth_header[7:]
-
-        if request.args:
-            return request.args.get("token")
 
         return None
 
