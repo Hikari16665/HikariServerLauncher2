@@ -88,9 +88,22 @@ def import_mrpack_flow(task, session_id: str, selected_paths: list[str], metadat
         )
         _download_files(task, server, selected)
         _apply_overrides(task, pack_path, Path(server.path))
-        _save_pack_metadata(server, manifest, selected)
+        rules, _ = _load_rules()
+        removed = _remove_incompatible_files(
+            task,
+            Path(server.path),
+            manifest["pack"]["minecraft"],
+            rules,
+        )
+        remaining = [item for item in selected if Path(server.path, item["path"]).is_file()]
+        _save_pack_metadata(server, manifest, remaining)
         task.set_progress(100, "模组包服务器已准备完成")
-        return {"server_uuid": server.uuid, "installed_files": len(selected), "pack": manifest["pack"]}
+        return {
+            "server_uuid": server.uuid,
+            "installed_files": len(remaining),
+            "removed_incompatible": removed,
+            "pack": manifest["pack"],
+        }
     except Exception:
         # A failed import must not leave a broken server in the workspace.
         workspace._servers.servers = [item for item in workspace._servers.servers if item.uuid != server.uuid]
@@ -343,6 +356,101 @@ def _apply_overrides(task, pack_path: Path, destination: Path) -> None:
                 target = destination / relative; target.parent.mkdir(parents=True, exist_ok=True)
                 with pack.open(entry) as source, target.open("wb") as output: shutil.copyfileobj(source, output)
     task.complete_step("pack-overrides")
+
+
+def _remove_incompatible_files(
+    task,
+    destination: Path,
+    game: str,
+    rules: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    task.set_step("pack-verify-overrides", "复查覆盖目录中的不兼容项目")
+    if not rules:
+        task.complete_step("pack-verify-overrides")
+        return []
+
+    addons = []
+    for folder_name in ("mods", "plugins"):
+        folder = destination / folder_name
+        if not folder.is_dir():
+            continue
+        for path in folder.rglob("*.jar"):
+            try:
+                sha1 = _hash_file(path, "sha1")
+                with zipfile.ZipFile(path) as jar:
+                    mod_ids = _jar_mod_ids(jar)
+            except (OSError, zipfile.BadZipFile, json.JSONDecodeError, tomllib.TOMLDecodeError):
+                sha1 = _hash_file(path, "sha1")
+                mod_ids = set()
+            addons.append({"path": path, "sha1": sha1, "identifiers": mod_ids})
+
+    project_ids = _lookup_project_identifiers([item["sha1"] for item in addons])
+    pack_ids: set[str] = set()
+    for item in addons:
+        item["identifiers"].update(project_ids.get(item["sha1"], set()))
+        item["identifiers"].add(item["path"].stem.lower())
+        pack_ids.update(item["identifiers"])
+
+    removed = []
+    for item in addons:
+        reasons = list(dict.fromkeys(
+            rule["desc"]
+            for rule in rules
+            if any(
+                _rule_matches(rule, identifier, game, pack_ids)
+                for identifier in item["identifiers"]
+            )
+        ))
+        if not reasons:
+            continue
+        relative = item["path"].relative_to(destination).as_posix()
+        item["path"].unlink()
+        removed.append({
+            "path": relative,
+            "reason": "；".join(reasons),
+            "identifiers": sorted(item["identifiers"]),
+        })
+
+    task.complete_step("pack-verify-overrides")
+    if removed:
+        task.set_progress(97, f"已剔除 {len(removed)} 个不兼容项目")
+    return removed
+
+
+def _lookup_project_identifiers(hashes: list[str]) -> dict[str, set[str]]:
+    if not hashes:
+        return {}
+    try:
+        with httpx.Client(headers=HEADERS, timeout=30, follow_redirects=True) as client:
+            response = client.post(
+                API + "/version_files",
+                json={"hashes": hashes, "algorithm": "sha1"},
+            )
+            response.raise_for_status()
+            versions = response.json()
+            ids = sorted({version["project_id"] for version in versions.values()})
+            projects = {}
+            if ids:
+                response = client.get(API + "/projects", params={"ids": json.dumps(ids)})
+                response.raise_for_status()
+                projects = {project["id"]: project for project in response.json()}
+        return {
+            sha1: {
+                str(version.get("project_id") or "").lower(),
+                str(projects.get(version.get("project_id"), {}).get("slug") or "").lower(),
+            } - {""}
+            for sha1, version in versions.items()
+        }
+    except httpx.HTTPError:
+        return {}
+
+
+def _hash_file(path: Path, algorithm: str) -> str:
+    digest = hashlib.new(algorithm)
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _save_pack_metadata(server: Server, manifest: dict[str, Any], selected: list[dict[str, Any]]) -> None:

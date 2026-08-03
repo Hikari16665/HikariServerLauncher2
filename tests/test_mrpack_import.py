@@ -2,6 +2,8 @@ import io
 import json
 import unittest
 import zipfile
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 import httpx
@@ -11,6 +13,7 @@ from core.mrpack_import import (
     _load_rules,
     _loader_info,
     _parse_rules,
+    _remove_incompatible_files,
     _rule_matches,
     _safe_relative,
 )
@@ -70,6 +73,34 @@ class MrpackImportTests(unittest.TestCase):
                 _jar_mod_ids(jar),
                 {"fabric-example", "forge_example"},
             )
+
+    @patch("core.mrpack_import._lookup_project_identifiers", return_value={})
+    def test_override_mod_is_removed_by_loader_mod_id(self, _lookup):
+        rules = _parse_rules(
+            "id=cit-resewn game=* desc=client-only custom item textures\n"
+        )
+        task = Mock()
+        with TemporaryDirectory() as temporary:
+            server = Path(temporary)
+            mods = server / "mods"
+            mods.mkdir()
+            cit = mods / "citresewn-1.2.2.jar"
+            compatible = mods / "server-example.jar"
+            with zipfile.ZipFile(cit, "w") as jar:
+                jar.writestr("fabric.mod.json", json.dumps({"id": "citresewn"}))
+            with zipfile.ZipFile(compatible, "w") as jar:
+                jar.writestr("fabric.mod.json", json.dumps({"id": "server_example"}))
+
+            removed = _remove_incompatible_files(task, server, "1.21.1", rules)
+
+            self.assertFalse(cit.exists())
+            self.assertTrue(compatible.exists())
+            self.assertEqual([item["path"] for item in removed], ["mods/citresewn-1.2.2.jar"])
+            task.set_step.assert_called_once_with(
+                "pack-verify-overrides",
+                "复查覆盖目录中的不兼容项目",
+            )
+            task.complete_step.assert_called_once_with("pack-verify-overrides")
 
     def test_archive_path_cannot_escape_server(self):
         with self.assertRaises(ValueError):
