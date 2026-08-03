@@ -18,6 +18,7 @@ export default function FileBrowser({ serverUuid }: Props) {
   const [editingFile, setEditingFile] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [savingFile, setSavingFile] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
   const apiUrl = useSettings((s) => s.apiUrl);
   const token = useSettings((s) => s.token);
   const addToast = useToastStore((s) => s.addToast);
@@ -99,7 +100,13 @@ export default function FileBrowser({ serverUuid }: Props) {
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > 512 * 1024 * 1024) {
+      addToast("文件不能超过 512 MB", "error");
+      e.target.value = "";
+      return;
+    }
 
+    setUploadingFile(true);
     try {
       const base64 = await fileToBase64(file);
       const url = `${apiUrl}/api/servers/${serverUuid}/files/upload?path=${encodeURIComponent(path)}`;
@@ -118,8 +125,10 @@ export default function FileBrowser({ serverUuid }: Props) {
       addToast("上传成功", "success");
     } catch (e: any) {
       addToast(e.message || "上传失败", "error", e.detail);
+    } finally {
+      setUploadingFile(false);
+      if (uploadRef.current) uploadRef.current.value = "";
     }
-    if (uploadRef.current) uploadRef.current.value = "";
   }
 
   const parentPath = path.includes("/")
@@ -171,8 +180,8 @@ export default function FileBrowser({ serverUuid }: Props) {
           style={{ flex: 1, fontSize: 12, padding: "4px 8px" }}
         />
         <button className="btn-ghost" onClick={() => fetchFiles()} style={{ fontSize: 12 }}>刷新</button>
-        <button className="btn-ghost" onClick={() => uploadRef.current?.click()} style={{ fontSize: 12 }}>
-          上传
+        <button className="btn-ghost" disabled={uploadingFile} onClick={() => uploadRef.current?.click()} style={{ fontSize: 12 }}>
+          {uploadingFile ? "正在上传…" : "上传"}
         </button>
         <input ref={uploadRef} type="file" onChange={handleUpload} style={{ display: "none" }} />
       </div>
