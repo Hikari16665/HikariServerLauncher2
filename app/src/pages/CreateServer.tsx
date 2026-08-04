@@ -84,6 +84,7 @@ export default function CreateServer() {
   const [loadingBuilds, setLoadingBuilds] = useState(false);
   const [stableOnly, setStableOnly] = useState(true);
   const [error, setError] = useState("");
+  const [stage, setStage] = useState(0);
 
   useEffect(() => {
     setVersion("");
@@ -154,6 +155,9 @@ export default function CreateServer() {
       (!NEEDS_MC_VERSION.includes(serverType) || mcVersion) &&
       maxMemory >= 512,
   );
+  const versionReady = Boolean(
+    version && (!NEEDS_MC_VERSION.includes(serverType) || mcVersion),
+  );
 
   async function createServer() {
     if (!name.trim()) {
@@ -215,44 +219,31 @@ export default function CreateServer() {
   }
 
   return (
-    <section className="page-shell">
+    <section className="page-shell server-wizard-page">
       <header className="page-header">
         <div>
           <span className="page-kicker">NEW INSTANCE</span>
           <h1>新建服务器</h1>
           <p>安装服务器及其运行环境</p>
         </div>
+        <div className="import-steps">
+          <span className={stage >= 0 ? "active" : ""}>1 基本信息</span>
+          <span className={stage >= 1 ? "active" : ""}>2 服务端版本</span>
+          <span className={stage >= 2 ? "active" : ""}>3 运行环境</span>
+        </div>
       </header>
-      <div className="page-body installer-layout">
-        <div className="installer-workspace">
-          <article className="surface installer-section">
-            <SectionTitle step="01" label="IDENTITY" title="基本信息" />
-            <div className="form-grid form-grid-name">
-              <label>
-                服务器名称
-                <input
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="My Server"
-                  autoFocus
-                />
-              </label>
-              <label>
-                服务端类型
-                <select
-                  value={serverType}
-                  onChange={(event) =>
-                    setServerType(event.target.value as ServerType)
-                  }
-                >
-                  {SERVER_TYPES.map((type) => (
-                    <option key={type}>{type}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </article>
-          <article className="surface installer-section version-section">
+      <div className="page-body server-wizard">
+        {stage === 0 && <article className="surface server-wizard-card">
+          <SectionTitle step="01" label="IDENTITY" title="设置服务器名称和类型" />
+          <p className="wizard-description">名称用于区分本地实例；服务端类型决定可用版本、模组或插件环境。</p>
+          <div className="form-grid form-grid-name">
+            <label>服务器名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="My Server" autoFocus /></label>
+            <label>服务端类型<select value={serverType} onChange={(event) => setServerType(event.target.value as ServerType)}>{SERVER_TYPES.map((type) => <option key={type}>{type}</option>)}</select></label>
+          </div>
+          <footer className="server-wizard-actions"><button className="btn-ghost" onClick={() => navigate("/")}>取消</button><button className="btn-primary" disabled={!name.trim()} onClick={() => setStage(1)}>下一步：选择版本</button></footer>
+        </article>}
+
+        {stage === 1 && <article className="surface server-wizard-card version-section">
             <div className="section-heading">
               <SectionTitle
                 step="02"
@@ -270,6 +261,7 @@ export default function CreateServer() {
                 placeholder="筛选版本…"
               />
             </div>
+            <p className="wizard-description">只显示当前服务端类型可安装的版本。可输入版本号快速筛选。</p>
             {loadingVersions ? (
               <div className="inline-empty">正在加载版本…</div>
             ) : (
@@ -294,12 +286,10 @@ export default function CreateServer() {
                 })}
               </div>
             )}
-          </article>
-          {NEEDS_MC_VERSION.includes(serverType) && mcVersion && (
-            <article className="surface installer-section">
+          {NEEDS_MC_VERSION.includes(serverType) && mcVersion && <div className="wizard-build-panel">
               <div className="section-heading">
                 <SectionTitle
-                  step="03"
+                  step="02B"
                   label="BUILD"
                   title={`选择 ${serverType} 构建`}
                 />
@@ -326,79 +316,25 @@ export default function CreateServer() {
                   允许使用非稳定构建
                 </label>
               )}
-            </article>
-          )}
-        </div>
-        <aside className="installer-sidebar">
-          <article className="surface installer-section">
-            <SectionTitle label="RUNTIME" title="运行参数" />
+            </div>}
+          <footer className="server-wizard-actions"><button className="btn-ghost" onClick={() => setStage(0)}>上一步</button><button className="btn-primary" disabled={!versionReady} onClick={() => setStage(2)}>下一步：运行环境</button></footer>
+        </article>}
+
+        {stage === 2 && <article className="surface server-wizard-card">
+          <SectionTitle step="03" label="RUNTIME" title="配置运行环境" />
+          <p className="wizard-description">Java 已根据 Minecraft 版本自动推荐；需要时可调整内存和 JVM 参数。</p>
+          <div className="server-runtime-grid">
             <div className="form-stack">
-              <label>
-                最大内存（MB）
-                <input
-                  type="number"
-                  min="512"
-                  step="512"
-                  value={maxMemory}
-                  onChange={(event) => setMaxMemory(Number(event.target.value))}
-                />
-              </label>
-              <label>
-                Java 版本
-                <select
-                  value={javaVersion}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setJavaVersion(value);
-                    setJavaWarning(Number(value) !== recommendedJava);
-                  }}
-                >
-                  {["8", "11", "17", "21", "25"].map((item) => (
-                    <option key={item} value={item}>
-                      Java {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {javaWarning && (
-                <p className="warning-text">
-                  当前不是推荐的 Java {recommendedJava}，服务端可能无法启动。
-                </p>
-              )}
-              <label>
-                额外 JVM 参数
-                <input
-                  value={extraArgs}
-                  onChange={(event) => setExtraArgs(event.target.value)}
-                  placeholder="-Xms512M -XX:+UseG1GC"
-                />
-              </label>
+              <label>最大内存（MB）<input type="number" min="512" step="512" value={maxMemory} onChange={(event) => setMaxMemory(Number(event.target.value))} /></label>
+              <label>Java 版本<select value={javaVersion} onChange={(event) => { const value = event.target.value; setJavaVersion(value); setJavaWarning(Number(value) !== recommendedJava); }}>{["8", "11", "17", "21", "25"].map((item) => <option key={item} value={item}>Java {item}</option>)}</select></label>
+              {javaWarning && <p className="warning-text">当前不是推荐的 Java {recommendedJava}，服务端可能无法启动。</p>}
+              <label>额外 JVM 参数<input value={extraArgs} onChange={(event) => setExtraArgs(event.target.value)} placeholder="-Xms512M -XX:+UseG1GC" /></label>
             </div>
-          </article>
-          <article className="surface installer-summary">
-            <span className="section-label">SUMMARY</span>
-            <dl>
-              <Summary label="名称" value={name || "未命名"} />
-              <Summary label="类型" value={serverType} />
-              <Summary label="版本" value={version || mcVersion || "未选择"} />
-              <Summary label="Java" value={javaVersion} />
-              <Summary label="内存" value={`${maxMemory} MB`} />
-            </dl>
-            {error && <p className="error-banner">{error}</p>}
-            <div className="installer-actions">
-              <button
-                className="btn-primary"
-                onClick={createServer}
-              disabled={creating || !canCreate}
-              >
-                {creating ? "正在创建…" : "创建服务器"}
-              </button>
-              <button className="btn-ghost" onClick={() => navigate("/")}>
-                取消
-              </button>
-            </div>
-          </article>
-        </aside>
+            <div className="server-wizard-summary"><span className="section-label">INSTALL SUMMARY</span><dl><Summary label="名称" value={name || "未命名"} /><Summary label="类型" value={serverType} /><Summary label="Minecraft" value={mcVersion || version} /><Summary label="构建" value={version} /><Summary label="Java" value={`Java ${javaVersion}`} /><Summary label="内存" value={`${maxMemory} MB`} /></dl></div>
+          </div>
+          {error && <p className="error-banner">{error}</p>}
+          <footer className="server-wizard-actions"><button className="btn-ghost" onClick={() => setStage(1)}>上一步</button><button className="btn-primary" onClick={createServer} disabled={creating || !canCreate}>{creating ? "正在创建…" : "创建服务器"}</button></footer>
+        </article>}
       </div>
     </section>
   );

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 
 function syncWorkspaceSession(token: string) {
   invoke("set_workspace_session", { token }).catch(() => undefined);
@@ -44,7 +45,11 @@ export const useSettings = create<SettingsState>()(
       hydrateToken: (token) => set({ token, tokenExpiry: token ? Date.now() + 43200 * 1000 : 0 }),
       setUseMirror: (v) => set({ useMirror: v }),
       setOnboardingDone: () => set({ onboardingDone: true }),
-      setTheme: (theme) => set({ theme }),
+      setTheme: (theme) =>
+        set(() => {
+          emit("theme-changed", { theme }).catch(() => undefined);
+          return { theme };
+        }),
       clearAuth: () => set(() => { syncWorkspaceSession(""); return { token: "", adminKey: "", tokenExpiry: 0 }; }),
     }),
     {

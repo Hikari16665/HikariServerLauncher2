@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useSettings } from "../store/settings";
 import { invoke } from "@tauri-apps/api/core";
-import { THEMES, applyTheme } from "../lib/themes";
+import { THEMES } from "../lib/themes";
 
 export default function Settings() {
   const settings = useSettings();
@@ -34,7 +34,7 @@ export default function Settings() {
     <div className="page-body settings-layout">
       <article className="surface settings-card"><div className="settings-card-head"><div><span className="section-label">CONNECTION</span><h2>后端连接</h2><p>设置后端 API 地址和管理员密钥</p></div></div><div className="form-stack"><label>API 地址<div className="input-action"><input value={url} onChange={(event) => setUrl(event.target.value)} /><button className="btn-ghost" onClick={testConnection} disabled={testing}>{testing ? "测试中…" : "测试"}</button></div>{testResult && <small className={testResult === "success" ? "success-text" : "error-text"}>{testResult === "success" ? "连接成功" : "连接失败"}</small>}</label><label>管理员密钥<input type="password" value={key} onChange={(event) => setKey(event.target.value)} placeholder="输入管理员密钥" /></label></div></article>
       <article className="surface settings-card"><div className="settings-card-head"><div><span className="section-label">DOWNLOADS</span><h2>下载来源</h2><p>设置 Java 和服务端文件的下载来源</p></div><button className={`switch ${mirror ? "active" : ""}`} onClick={() => setMirror(!mirror)} aria-label="切换镜像"><i /></button></div><div className="setting-note">{mirror ? "优先使用镜像源" : "使用官方来源"}</div></article>
-      <article className="surface settings-card settings-card-wide"><div className="settings-card-head"><div><span className="section-label">APPEARANCE</span><h2>界面主题</h2><p>选择界面配色</p></div></div><div className="theme-grid">{THEMES.map((theme) => <button key={theme.name} className={`theme-option ${settings.theme === theme.name ? "active" : ""}`} onClick={() => { settings.setTheme(theme.name); applyTheme(theme.name); }}><span>{theme.label}</span>{settings.theme === theme.name && <b>当前</b>}</button>)}</div></article>
+      <article className="surface settings-card settings-card-wide"><div className="settings-card-head"><div><span className="section-label">APPEARANCE</span><h2>界面主题</h2><p>选择界面配色</p></div></div><div className="theme-grid">{THEMES.map((theme) => <button key={theme.name} className={`theme-option ${settings.theme === theme.name ? "active" : ""}`} onClick={() => settings.setTheme(theme.name)}><span>{theme.label}</span>{settings.theme === theme.name && <b>当前</b>}</button>)}</div></article>
     </div>
   </section>;
 }

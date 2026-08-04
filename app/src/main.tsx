@@ -5,6 +5,7 @@ import "./index.css";
 import App from "./App";
 import { applyTheme } from "./lib/themes";
 import { useSettings } from "./store/settings";
+import { listen } from "@tauri-apps/api/event";
 
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 
@@ -21,6 +22,27 @@ const savedTheme = useSettings.getState().theme;
 if (savedTheme) {
   applyTheme(savedTheme);
 }
+
+useSettings.subscribe((state, previous) => {
+  if (state.theme !== previous.theme) applyTheme(state.theme);
+});
+
+listen<{ theme: string }>("theme-changed", ({ payload }) => {
+  if (!payload?.theme) return;
+  useSettings.setState({ theme: payload.theme });
+  applyTheme(payload.theme);
+}).catch(() => undefined);
+
+window.addEventListener("storage", (event) => {
+  if (event.key !== "hsl-settings" || !event.newValue) return;
+  try {
+    const theme = JSON.parse(event.newValue)?.state?.theme;
+    if (typeof theme === "string") {
+      useSettings.setState({ theme });
+      applyTheme(theme);
+    }
+  } catch { /* ignore invalid persisted data */ }
+});
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

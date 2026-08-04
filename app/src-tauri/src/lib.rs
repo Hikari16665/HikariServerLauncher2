@@ -9,7 +9,7 @@ use std::time::Duration;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    LogicalSize, Manager, Size, WebviewUrl, WebviewWindowBuilder,
+    Manager, PhysicalPosition, Position, Size, WebviewUrl, WebviewWindowBuilder,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -693,6 +693,41 @@ fn workspace_url(view: &str, route: Option<&str>) -> WebviewUrl {
     WebviewUrl::App(suffix.into())
 }
 
+fn position_workspace_menu(app: &tauri::AppHandle) -> Result<(), String> {
+    let orb = app
+        .get_webview_window("workspace-orb")
+        .ok_or_else(|| "悬浮窗口不存在".to_string())?;
+    let menu = app
+        .get_webview_window("workspace-menu")
+        .ok_or_else(|| "功能菜单窗口不存在".to_string())?;
+    let orb_position = orb.outer_position().map_err(|error| error.to_string())?;
+    let orb_size = orb.outer_size().map_err(|error| error.to_string())?;
+    let menu_size = menu.outer_size().map_err(|error| error.to_string())?;
+    let monitor = orb
+        .current_monitor()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "无法获取悬浮窗口所在显示器".to_string())?;
+    let work = monitor.work_area();
+    let gap = 8;
+    let work_left = work.position.x;
+    let work_top = work.position.y;
+    let work_right = work_left + work.size.width as i32;
+    let work_bottom = work_top + work.size.height as i32;
+    let right_x = orb_position.x + orb_size.width as i32 + gap;
+    let left_x = orb_position.x - menu_size.width as i32 - gap;
+    let x = if right_x + menu_size.width as i32 <= work_right {
+        right_x
+    } else {
+        left_x.max(work_left)
+    };
+    let y = orb_position.y.clamp(
+        work_top,
+        (work_bottom - menu_size.height as i32).max(work_top),
+    );
+    menu.set_position(Position::Physical(PhysicalPosition::new(x, y)))
+        .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 fn show_home(app: tauri::AppHandle) {
     show_main_window(&app);
@@ -706,6 +741,7 @@ fn toggle_workspace_menu(app: tauri::AppHandle) -> Result<(), String> {
     if menu.is_visible().unwrap_or(false) {
         menu.hide().map_err(|error| error.to_string())?;
     } else {
+        position_workspace_menu(&app)?;
         menu.show().map_err(|error| error.to_string())?;
         menu.set_focus().map_err(|error| error.to_string())?;
     }
@@ -736,6 +772,7 @@ async fn open_workspace_window(
             .min_inner_size(520.0, 420.0)
             .resizable(true)
             .decorations(false)
+            .disable_drag_drop_handler()
             .center()
             .visible(false)
             .build()
@@ -754,12 +791,19 @@ async fn set_orb_task_mode(app: tauri::AppHandle, active: bool) -> Result<(), St
         .get_webview_window("workspace-orb")
         .ok_or_else(|| "悬浮窗口不存在".to_string())?;
     let size = if active {
-        LogicalSize::new(288.0, 126.0)
+        tauri::LogicalSize::new(288.0, 126.0)
     } else {
-        LogicalSize::new(100.0, 76.0)
+        tauri::LogicalSize::new(76.0, 76.0)
     };
     orb.set_size(Size::Logical(size))
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    if app
+        .get_webview_window("workspace-menu")
+        .is_some_and(|menu| menu.is_visible().unwrap_or(false))
+    {
+        position_workspace_menu(&app)?;
+    }
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -787,6 +831,15 @@ pub fn run() {
             get_workspace_session
         ])
         .setup(|app| {
+            if let Some(orb) = app.get_webview_window("workspace-orb") {
+                let app_handle = app.handle().clone();
+                orb.on_window_event(move |event| {
+                    if matches!(event, tauri::WindowEvent::Moved(_)) {
+                        let _ = position_workspace_menu(&app_handle);
+                    }
+                });
+            }
+
             // Build tray menu
             let show = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "退出").build(app)?;
