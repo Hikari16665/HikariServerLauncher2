@@ -764,6 +764,12 @@ async fn set_orb_task_mode(app: tauri::AppHandle, active: bool) -> Result<(), St
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // WebView2 paints its own opaque surface before the document background is
+    // applied. Transparent utility windows need that native surface cleared as
+    // well; regular windows remain opaque through their page backgrounds.
+    #[cfg(target_os = "windows")]
+    std::env::set_var("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000");
+
     tauri::Builder::default()
         .manage(Mutex::new(WorkspaceSession::default()))
         .plugin(tauri_plugin_opener::init())

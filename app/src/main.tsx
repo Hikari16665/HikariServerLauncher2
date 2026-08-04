@@ -12,6 +12,8 @@ const windowView = new URLSearchParams(window.location.search).get("view");
 if (windowView === "orb" || windowView === "menu") {
   document.documentElement.classList.add("transparent-window");
   document.body.classList.add("transparent-window");
+  document.documentElement.style.backgroundColor = "transparent";
+  document.body.style.backgroundColor = "transparent";
 }
 
 // Restore persisted theme on load
