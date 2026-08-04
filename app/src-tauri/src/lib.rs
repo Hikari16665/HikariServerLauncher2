@@ -731,36 +731,6 @@ fn place_near_anchor(
     let _ = target.set_position(Position::Logical(LogicalPosition::new(x, y)));
 }
 
-fn slide_window_into_place(window: &tauri::WebviewWindow, anchor: &tauri::WebviewWindow) {
-    let Ok(final_position) = window.outer_position() else {
-        return;
-    };
-    let Ok(anchor_position) = anchor.outer_position() else {
-        return;
-    };
-    let direction = if final_position.x < anchor_position.x {
-        1
-    } else {
-        -1
-    };
-    let distance = 34 * direction;
-    let _ = window.set_position(Position::Physical(tauri::PhysicalPosition::new(
-        final_position.x + distance,
-        final_position.y,
-    )));
-    let animated = window.clone();
-    std::thread::spawn(move || {
-        for step in 1..=10 {
-            let remaining = distance * (10 - step) / 10;
-            let _ = animated.set_position(Position::Physical(tauri::PhysicalPosition::new(
-                final_position.x + remaining,
-                final_position.y,
-            )));
-            std::thread::sleep(Duration::from_millis(16));
-        }
-    });
-}
-
 #[tauri::command]
 fn show_home(app: tauri::AppHandle) {
     show_main_window(&app);
@@ -786,6 +756,7 @@ fn toggle_workspace_menu(app: tauri::AppHandle) -> Result<(), String> {
         .resizable(false)
         .decorations(false)
         .transparent(true)
+        .background_color(tauri::window::Color(0, 0, 0, 0))
         .shadow(false)
         .skip_taskbar(true)
         .always_on_top(true)
@@ -829,7 +800,6 @@ fn open_workspace_window(
             .map_err(|error| error.to_string())?;
     if let Some(anchor) = app.get_webview_window("workspace-menu") {
         place_near_anchor(&anchor, &window, 760.0, 620.0, 12.0);
-        slide_window_into_place(&window, &anchor);
     }
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
@@ -909,6 +879,7 @@ pub fn run() {
                 .resizable(false)
                 .decorations(false)
                 .transparent(true)
+                .background_color(tauri::window::Color(0, 0, 0, 0))
                 .shadow(false)
                 .skip_taskbar(true)
                 .always_on_top(true)

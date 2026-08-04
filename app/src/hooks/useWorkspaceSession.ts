@@ -7,13 +7,19 @@ export function useWorkspaceSession() {
   const hydrateToken = useSettings((state) => state.hydrateToken);
   useEffect(() => {
     let active = true;
+    let pushing = Boolean(token);
     const synchronize = async () => {
       try {
+        if (pushing) {
+          await invoke("set_workspace_session", { token });
+          pushing = false;
+          return;
+        }
         const session = await invoke<{ token: string }>("get_workspace_session");
         if (active && session.token !== useSettings.getState().token) hydrateToken(session.token);
       } catch {}
     };
-    synchronize();
+    void synchronize();
     const timer = window.setInterval(synchronize, 750);
     return () => { active = false; clearInterval(timer); };
   }, [hydrateToken, token]);
