@@ -8,6 +8,12 @@ import { useSettings } from "./store/settings";
 
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 
+const windowView = new URLSearchParams(window.location.search).get("view");
+if (windowView === "orb" || windowView === "menu") {
+  document.documentElement.classList.add("transparent-window");
+  document.body.classList.add("transparent-window");
+}
+
 // Restore persisted theme on load
 const savedTheme = useSettings.getState().theme;
 if (savedTheme) {

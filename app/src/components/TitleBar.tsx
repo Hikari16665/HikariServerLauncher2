@@ -27,7 +27,6 @@ export default function TitleBar({ title = "Hikari Server Launcher", compact = f
 
   return (
     <div
-      data-tauri-drag-region
       onMouseDown={handleMouseDown}
       style={{
         display: "flex",

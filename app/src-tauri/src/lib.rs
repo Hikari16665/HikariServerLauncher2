@@ -27,6 +27,16 @@ struct ProxyResponse {
     error: Option<String>,
 }
 
+#[derive(Default)]
+struct WorkspaceSession {
+    token: String,
+}
+
+#[derive(Serialize)]
+struct WorkspaceSessionSnapshot {
+    token: String,
+}
+
 fn validate_proxy_url(value: &str) -> Result<(), String> {
     let parsed = url::Url::parse(value).map_err(|_| "Invalid backend URL".to_string())?;
     if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
@@ -644,6 +654,30 @@ fn win_start_dragging(window: tauri::Window) {
     let _ = window.start_dragging();
 }
 
+#[tauri::command]
+fn set_workspace_session(
+    session: tauri::State<'_, Mutex<WorkspaceSession>>,
+    token: String,
+) -> Result<(), String> {
+    session
+        .lock()
+        .map_err(|_| "会话状态不可用".to_string())?
+        .token = token;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_workspace_session(
+    session: tauri::State<'_, Mutex<WorkspaceSession>>,
+) -> Result<WorkspaceSessionSnapshot, String> {
+    let token = session
+        .lock()
+        .map_err(|_| "会话状态不可用".to_string())?
+        .token
+        .clone();
+    Ok(WorkspaceSessionSnapshot { token })
+}
+
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -739,7 +773,7 @@ fn toggle_workspace_menu(app: tauri::AppHandle) -> Result<(), String> {
             menu.hide().map_err(|error| error.to_string())?;
         } else {
             if let Some(anchor) = app.get_webview_window("workspace-orb") {
-                place_near_anchor(&anchor, &menu, 224.0, 450.0, 10.0);
+                place_near_anchor(&anchor, &menu, 224.0, 500.0, 10.0);
             }
             menu.show().map_err(|error| error.to_string())?;
             menu.set_focus().map_err(|error| error.to_string())?;
@@ -748,7 +782,7 @@ fn toggle_workspace_menu(app: tauri::AppHandle) -> Result<(), String> {
     }
     let menu = WebviewWindowBuilder::new(&app, "workspace-menu", workspace_url("menu", None))
         .title("HSL2 功能")
-        .inner_size(224.0, 450.0)
+        .inner_size(224.0, 500.0)
         .resizable(false)
         .decorations(false)
         .transparent(true)
@@ -759,7 +793,7 @@ fn toggle_workspace_menu(app: tauri::AppHandle) -> Result<(), String> {
         .build()
         .map_err(|error| error.to_string())?;
     if let Some(anchor) = app.get_webview_window("workspace-orb") {
-        place_near_anchor(&anchor, &menu, 224.0, 450.0, 10.0);
+        place_near_anchor(&anchor, &menu, 224.0, 500.0, 10.0);
     }
     menu.show().map_err(|error| error.to_string())?;
     menu.set_focus().map_err(|error| error.to_string())?;
@@ -808,6 +842,7 @@ fn open_workspace_window(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(Mutex::new(WorkspaceSession::default()))
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             proxy_fetch,
@@ -823,7 +858,9 @@ pub fn run() {
             win_start_dragging,
             show_home,
             toggle_workspace_menu,
-            open_workspace_window
+            open_workspace_window,
+            set_workspace_session,
+            get_workspace_session
         ])
         .setup(|app| {
             // Build tray menu

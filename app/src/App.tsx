@@ -9,6 +9,7 @@ import WorkspaceMenu from "./components/WorkspaceMenu";
 import ToastContainer from "./components/Toast";
 import ConfirmDialog from "./components/ConfirmDialog";
 import { api } from "./lib/api";
+import { useWorkspaceSession } from "./hooks/useWorkspaceSession";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Servers = lazy(() => import("./pages/Servers"));
@@ -94,6 +95,7 @@ function AppRoutes() {
 }
 
 export default function App() {
+  useWorkspaceSession();
   const windowView = new URLSearchParams(window.location.search).get("view");
   if (windowView === "orb") return <WorkspaceOrb />;
   if (windowView === "menu") return <WorkspaceMenu />;
