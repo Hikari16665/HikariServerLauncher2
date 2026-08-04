@@ -22,6 +22,39 @@
         "center": true,
         "decorations": false,
         "dragDropEnabled": false
+      },
+      {
+        "label": "workspace-orb",
+        "title": "HSL2",
+        "url": "index.html?view=orb",
+        "width": 288,
+        "height": 126,
+        "x": 20,
+        "y": 120,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "skipTaskbar": true,
+        "alwaysOnTop": true,
+        "backgroundColor": "#00000000"
+      },
+      {
+        "label": "workspace-menu",
+        "title": "HSL2 功能",
+        "url": "index.html?view=menu",
+        "width": 224,
+        "height": 500,
+        "x": 110,
+        "y": 120,
+        "visible": false,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "skipTaskbar": true,
+        "alwaysOnTop": true,
+        "backgroundColor": "#00000000"
       }
     ],
     "security": {
