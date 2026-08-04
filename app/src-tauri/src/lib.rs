@@ -9,7 +9,7 @@ use std::time::Duration;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    LogicalPosition, Manager, Position, WebviewUrl, WebviewWindowBuilder,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -644,6 +644,167 @@ fn win_start_dragging(window: tauri::Window) {
     let _ = window.start_dragging();
 }
 
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn workspace_url(view: &str, route: Option<&str>) -> WebviewUrl {
+    let suffix = route
+        .map(|value| format!("index.html?view={view}#{}", value))
+        .unwrap_or_else(|| format!("index.html?view={view}"));
+    WebviewUrl::App(suffix.into())
+}
+
+fn place_near_anchor(
+    anchor: &tauri::WebviewWindow,
+    target: &tauri::WebviewWindow,
+    width: f64,
+    height: f64,
+    gap: f64,
+) {
+    let Ok(anchor_position) = anchor.outer_position() else {
+        return;
+    };
+    let Ok(anchor_size) = anchor.outer_size() else {
+        return;
+    };
+    let Ok(Some(monitor)) = anchor.current_monitor() else {
+        return;
+    };
+    let scale = monitor.scale_factor();
+    let work_position = monitor.position();
+    let work_size = monitor.size();
+    let anchor_x = anchor_position.x as f64 / scale;
+    let anchor_y = anchor_position.y as f64 / scale;
+    let anchor_width = anchor_size.width as f64 / scale;
+    let work_left = work_position.x as f64 / scale;
+    let work_top = work_position.y as f64 / scale;
+    let work_right = work_left + work_size.width as f64 / scale;
+    let work_bottom = work_top + work_size.height as f64 / scale;
+    let open_left = anchor_x - width - gap >= work_left;
+    let x = if open_left {
+        anchor_x - width - gap
+    } else {
+        (anchor_x + anchor_width + gap).min(work_right - width)
+    };
+    let y = anchor_y
+        .max(work_top + 12.0)
+        .min(work_bottom - height - 20.0);
+    let _ = target.set_position(Position::Logical(LogicalPosition::new(x, y)));
+}
+
+fn slide_window_into_place(window: &tauri::WebviewWindow, anchor: &tauri::WebviewWindow) {
+    let Ok(final_position) = window.outer_position() else {
+        return;
+    };
+    let Ok(anchor_position) = anchor.outer_position() else {
+        return;
+    };
+    let direction = if final_position.x < anchor_position.x {
+        1
+    } else {
+        -1
+    };
+    let distance = 34 * direction;
+    let _ = window.set_position(Position::Physical(tauri::PhysicalPosition::new(
+        final_position.x + distance,
+        final_position.y,
+    )));
+    let animated = window.clone();
+    std::thread::spawn(move || {
+        for step in 1..=10 {
+            let remaining = distance * (10 - step) / 10;
+            let _ = animated.set_position(Position::Physical(tauri::PhysicalPosition::new(
+                final_position.x + remaining,
+                final_position.y,
+            )));
+            std::thread::sleep(Duration::from_millis(16));
+        }
+    });
+}
+
+#[tauri::command]
+fn show_home(app: tauri::AppHandle) {
+    show_main_window(&app);
+}
+
+#[tauri::command]
+fn toggle_workspace_menu(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(menu) = app.get_webview_window("workspace-menu") {
+        if menu.is_visible().unwrap_or(false) {
+            menu.hide().map_err(|error| error.to_string())?;
+        } else {
+            if let Some(anchor) = app.get_webview_window("workspace-orb") {
+                place_near_anchor(&anchor, &menu, 224.0, 450.0, 10.0);
+            }
+            menu.show().map_err(|error| error.to_string())?;
+            menu.set_focus().map_err(|error| error.to_string())?;
+        }
+        return Ok(());
+    }
+    let menu = WebviewWindowBuilder::new(&app, "workspace-menu", workspace_url("menu", None))
+        .title("HSL2 功能")
+        .inner_size(224.0, 450.0)
+        .resizable(false)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .skip_taskbar(true)
+        .always_on_top(true)
+        .visible(false)
+        .build()
+        .map_err(|error| error.to_string())?;
+    if let Some(anchor) = app.get_webview_window("workspace-orb") {
+        place_near_anchor(&anchor, &menu, 224.0, 450.0, 10.0);
+    }
+    menu.show().map_err(|error| error.to_string())?;
+    menu.set_focus().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn open_workspace_window(
+    app: tauri::AppHandle,
+    label: String,
+    route: String,
+    title: String,
+) -> Result<(), String> {
+    let safe_label = format!(
+        "workspace-{}",
+        label.replace(|c: char| !c.is_ascii_alphanumeric() && c != '-', "-")
+    );
+    if let Some(window) = app.get_webview_window(&safe_label) {
+        window.show().map_err(|error| error.to_string())?;
+        window.unminimize().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+    let window =
+        WebviewWindowBuilder::new(&app, &safe_label, workspace_url("workspace", Some(&route)))
+            .title(title)
+            .inner_size(760.0, 620.0)
+            .min_inner_size(520.0, 420.0)
+            .resizable(true)
+            .decorations(false)
+            .visible(false)
+            .build()
+            .map_err(|error| error.to_string())?;
+    if let Some(anchor) = app.get_webview_window("workspace-menu") {
+        place_near_anchor(&anchor, &window, 760.0, 620.0, 12.0);
+        slide_window_into_place(&window, &anchor);
+    }
+    window.show().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())?;
+    if let Some(menu) = app.get_webview_window("workspace-menu") {
+        let _ = menu.hide();
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -659,7 +820,10 @@ pub fn run() {
             win_toggle_maximize,
             win_close,
             win_is_maximized,
-            win_start_dragging
+            win_start_dragging,
+            show_home,
+            toggle_workspace_menu,
+            open_workspace_window
         ])
         .setup(|app| {
             // Build tray menu
@@ -673,12 +837,7 @@ pub fn run() {
                 .menu(&menu)
                 .tooltip("Hikari Server Launcher")
                 .on_menu_event(|app, event| match event.id().as_ref() {
-                    "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
+                    "show" => show_main_window(app),
                     "quit" => {
                         app.exit(0);
                     }
@@ -692,10 +851,7 @@ pub fn run() {
                     } = event
                     {
                         let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        show_main_window(app);
                     }
                 })
                 .build(app)?;
@@ -709,6 +865,25 @@ pub fn run() {
                     let _ = window_clone.hide();
                 }
             });
+
+            let orb = WebviewWindowBuilder::new(app, "workspace-orb", workspace_url("orb", None))
+                .title("HSL2")
+                .inner_size(288.0, 126.0)
+                .resizable(false)
+                .decorations(false)
+                .transparent(true)
+                .shadow(false)
+                .skip_taskbar(true)
+                .always_on_top(true)
+                .build()?;
+            if let Ok(Some(monitor)) = orb.current_monitor() {
+                let scale = monitor.scale_factor();
+                let origin = monitor.position();
+                let size = monitor.size();
+                let x = origin.x as f64 / scale + size.width as f64 / scale - 312.0;
+                let y = origin.y as f64 / scale + size.height as f64 / scale - 190.0;
+                let _ = orb.set_position(Position::Logical(LogicalPosition::new(x, y)));
+            }
 
             Ok(())
         })

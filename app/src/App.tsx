@@ -3,6 +3,9 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { useSettings } from "./store/settings";
 import Layout from "./components/Layout";
+import WorkspaceLayout from "./components/WorkspaceLayout";
+import WorkspaceOrb from "./components/WorkspaceOrb";
+import WorkspaceMenu from "./components/WorkspaceMenu";
 import ToastContainer from "./components/Toast";
 import ConfirmDialog from "./components/ConfirmDialog";
 import { api } from "./lib/api";
@@ -19,6 +22,7 @@ const Market = lazy(() => import("./pages/Market"));
 const Addons = lazy(() => import("./pages/Addons"));
 const Diagnostics = lazy(() => import("./pages/Diagnostics"));
 const ImportServer = lazy(() => import("./pages/ImportServer"));
+const Tasks = lazy(() => import("./pages/Tasks"));
 
 function PageFallback() {
   return (
@@ -30,6 +34,7 @@ function PageFallback() {
 }
 
 function AppRoutes() {
+  const windowView = new URLSearchParams(window.location.search).get("view");
   const { onboardingDone, token } = useSettings();
   const [checkingSession, setCheckingSession] = useState(Boolean(token));
 
@@ -70,7 +75,7 @@ function AppRoutes() {
 
   return (
     <Routes>
-      <Route path="/" element={<Layout />}>
+      <Route path="/" element={windowView === "workspace" ? <WorkspaceLayout /> : <Layout />}>
         <Route index element={<Dashboard />} />
         <Route path="servers" element={<Servers />} />
         <Route path="servers/:uuid" element={<ServerDetail />} />
@@ -81,6 +86,7 @@ function AppRoutes() {
         <Route path="diagnostics" element={<Diagnostics />} />
         <Route path="settings" element={<Settings />} />
         <Route path="about" element={<About />} />
+        <Route path="tasks" element={<Tasks />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
@@ -88,6 +94,9 @@ function AppRoutes() {
 }
 
 export default function App() {
+  const windowView = new URLSearchParams(window.location.search).get("view");
+  if (windowView === "orb") return <WorkspaceOrb />;
+  if (windowView === "menu") return <WorkspaceMenu />;
   return (
     <>
       <ToastContainer />

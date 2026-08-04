@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
-export default function TitleBar() {
+export default function TitleBar({ title = "Hikari Server Launcher", compact = false }: { title?: string; compact?: boolean }) {
   const [maximized, setMaximized] = useState(false);
 
   // Poll maximize state
@@ -42,7 +42,7 @@ export default function TitleBar() {
       }}
     >
       <span style={{ fontSize: 12, fontWeight: 600, color: "var(--accent)", letterSpacing: -0.3 }}>
-        Hikari Server Launcher
+        {title}
       </span>
 
       <div style={{ display: "flex", height: "100%" }}>
@@ -50,7 +50,7 @@ export default function TitleBar() {
           <svg width="10" height="1" viewBox="0 0 10 1"><line x1="0" y1="0.5" x2="10" y2="0.5" stroke="currentColor" strokeWidth="1.5"/></svg>
         </TitleButton>
 
-        <TitleButton action="win_toggle_maximize">
+        {!compact && <TitleButton action="win_toggle_maximize">
           {maximized ? (
             <svg width="10" height="10" viewBox="0 0 10 10">
               <rect x="2.5" y="0" width="6.5" height="6.5" fill="none" stroke="currentColor" strokeWidth="1"/>
@@ -61,7 +61,7 @@ export default function TitleBar() {
               <rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1"/>
             </svg>
           )}
-        </TitleButton>
+        </TitleButton>}
 
         <TitleButton action="win_close" hoverColor="#ef4444">
           <svg width="10" height="10" viewBox="0 0 10 10">
