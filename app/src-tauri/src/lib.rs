@@ -693,28 +693,6 @@ fn workspace_url(view: &str, route: Option<&str>) -> WebviewUrl {
     WebviewUrl::App(suffix.into())
 }
 
-#[cfg(target_os = "windows")]
-fn apply_utility_window_color_key(window: &tauri::WebviewWindow) -> Result<(), String> {
-    use windows::Win32::{
-        Foundation::COLORREF,
-        UI::WindowsAndMessaging::{
-            GetWindowLongPtrW, SetLayeredWindowAttributes, SetWindowLongPtrW, GWL_EXSTYLE,
-            LWA_COLORKEY, WS_EX_LAYERED,
-        },
-    };
-
-    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
-    unsafe {
-        let extended_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, extended_style | WS_EX_LAYERED.0 as isize);
-        // COLORREF is 0x00BBGGRR. This matches the #010203 host surface
-        // configured for utility windows; only pixels of that exact color are removed.
-        SetLayeredWindowAttributes(hwnd, COLORREF(0x0003_0201), 255, LWA_COLORKEY)
-            .map_err(|error| error.to_string())?;
-    }
-    Ok(())
-}
-
 #[tauri::command]
 fn show_home(app: tauri::AppHandle) {
     show_main_window(&app);
@@ -786,12 +764,6 @@ async fn set_orb_task_mode(app: tauri::AppHandle, active: bool) -> Result<(), St
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // WebView2 paints its own opaque surface before the document background is
-    // applied. Transparent utility windows need that native surface cleared as
-    // well; regular windows remain opaque through their page backgrounds.
-    #[cfg(target_os = "windows")]
-    std::env::set_var("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000");
-
     tauri::Builder::default()
         .manage(Mutex::new(WorkspaceSession::default()))
         .plugin(tauri_plugin_opener::init())
@@ -815,15 +787,6 @@ pub fn run() {
             get_workspace_session
         ])
         .setup(|app| {
-            #[cfg(target_os = "windows")]
-            for label in ["workspace-orb", "workspace-menu"] {
-                if let Some(window) = app.get_webview_window(label) {
-                    if let Err(error) = apply_utility_window_color_key(&window) {
-                        log::warn!("failed to enable color-key transparency for {label}: {error}");
-                    }
-                }
-            }
-
             // Build tray menu
             let show = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "退出").build(app)?;

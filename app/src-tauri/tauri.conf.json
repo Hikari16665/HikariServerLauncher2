@@ -37,7 +37,7 @@
         "shadow": false,
         "skipTaskbar": true,
         "alwaysOnTop": true,
-        "backgroundColor": "#010203ff"
+        "backgroundColor": "#00000000"
       },
       {
         "label": "workspace-menu",
@@ -54,7 +54,7 @@
         "shadow": false,
         "skipTaskbar": true,
         "alwaysOnTop": true,
-        "backgroundColor": "#010203ff"
+        "backgroundColor": "#00000000"
       }
     ],
     "security": {
