@@ -688,7 +688,7 @@ fn show_main_window(app: &tauri::AppHandle) {
 
 fn workspace_url(view: &str, route: Option<&str>) -> WebviewUrl {
     let suffix = route
-        .map(|value| format!("index.html?view={view}#{}", value))
+        .map(|value| format!("index.html?view={view}&route={value}"))
         .unwrap_or_else(|| format!("index.html?view={view}"));
     WebviewUrl::App(suffix.into())
 }

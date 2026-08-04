@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import { useSettings } from "../store/settings";
@@ -14,7 +13,6 @@ export default function Login() {
   const [error, setError] = useState("");
   const { apiUrl, setAuth } = useSettings();
   const addToast = useToastStore((state) => state.addToast);
-  const navigate = useNavigate();
 
   async function login() {
     if (!adminKey.trim()) { setError("请输入管理员密钥"); return; }
@@ -24,7 +22,8 @@ export default function Login() {
       if (response.error) throw new Error(response.error);
       const data = JSON.parse(response.body);
       if (!data.success || !data.token) throw new Error("管理员密钥无效");
-      setAuth(data.token, adminKey); navigate("/");
+      setAuth(data.token, adminKey);
+      await invoke("win_close");
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "无法连接到服务器";
       setError(message); addToast(message, "error", String(reason));

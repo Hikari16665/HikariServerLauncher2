@@ -35,7 +35,9 @@ function PageFallback() {
 }
 
 function AppRoutes() {
-  const windowView = new URLSearchParams(window.location.search).get("view");
+  const windowParams = new URLSearchParams(window.location.search);
+  const windowView = windowParams.get("view");
+  const workspaceRoute = windowParams.get("route");
   const { onboardingDone, token } = useSettings();
   const [checkingSession, setCheckingSession] = useState(Boolean(token));
 
@@ -77,7 +79,14 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={windowView === "workspace" ? <WorkspaceLayout /> : <Layout />}>
-        <Route index element={<Dashboard />} />
+        <Route
+          index
+          element={
+            windowView === "workspace" && workspaceRoute
+              ? <Navigate to={workspaceRoute} replace />
+              : <Dashboard />
+          }
+        />
         <Route path="servers" element={<Servers />} />
         <Route path="servers/:uuid" element={<ServerDetail />} />
         <Route path="install" element={<CreateServer />} />
