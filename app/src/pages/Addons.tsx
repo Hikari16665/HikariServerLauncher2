@@ -106,7 +106,7 @@ export default function Addons() {
       <header className="utility-header">
         <div>
           <h1>附加管理</h1>
-          <p>查看、停用、重命名或删除服务器中的模组和插件</p>
+          <p>管理服务器中的模组和插件</p>
         </div>
         <div className="header-actions">
           <select
@@ -129,7 +129,7 @@ export default function Addons() {
         <div className="workspace-placeholder">
           <strong>选择服务器以查看附加</strong>
           <span>
-            Forge/Fabric 读取 mods 文件夹，Paper 读取 plugins 文件夹。
+            Forge、NeoForge 和 Fabric 读取 mods；Paper 读取 plugins
           </span>
         </div>
       ) : (
@@ -152,7 +152,7 @@ export default function Addons() {
             ) : addons.length === 0 ? (
               <div className="table-empty">
                 <strong>/{folder} 中没有附加</strong>
-                <span>可以前往市场安装兼容内容</span>
+                <span>可从市场安装模组或插件</span>
               </div>
             ) : (
               addons.map((item) => (
@@ -235,7 +235,7 @@ export default function Addons() {
                 </div>
               </>
             ) : (
-              <div className="inspector-empty">选择一个模组或插件查看详情</div>
+              <div className="inspector-empty">选择要管理的模组或插件</div>
             )}
           </aside>
         </div>

@@ -146,7 +146,7 @@ export default function Dashboard() {
 
   return (
     <section className="page-shell dashboard-page">
-      <header className="page-header"><div><span className="page-kicker">OVERVIEW</span><h1>系统概览</h1><p>实时查看主机资源、网络吞吐和服务器磁盘占用。</p></div></header>
+      <header className="page-header"><div><span className="page-kicker">OVERVIEW</span><h1>系统概览</h1><p>主机资源与服务器磁盘用量</p></div></header>
 
       {error && (
         <div

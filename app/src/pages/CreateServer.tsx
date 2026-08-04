@@ -220,7 +220,7 @@ export default function CreateServer() {
         <div>
           <span className="page-kicker">NEW INSTANCE</span>
           <h1>新建服务器</h1>
-          <p>选择服务端类型与版本，HSL 会自动准备 Java 和运行文件。</p>
+          <p>安装服务器及其运行环境</p>
         </div>
       </header>
       <div className="page-body installer-layout">

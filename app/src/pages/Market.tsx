@@ -214,8 +214,8 @@ export default function Market() {
           <h1>{dependencyView ? "正在安装的前置" : "市场"}</h1>
           <p>
             {dependencyView
-              ? "以下前置已加入同一下载任务"
-              : "从 Modrinth 安装与当前服务器兼容的模组或插件"}
+              ? "确认本次任务将同时安装的前置"
+              : "搜索并安装兼容的模组或插件"}
           </p>
         </div>
         <select value={serverId} onChange={(e) => setServerId(e.target.value)}>
@@ -229,16 +229,13 @@ export default function Market() {
       </header>
       {!serverId ? (
         <div className="workspace-placeholder">
-          <strong>先选择一个服务器</strong>
-          <span>
-            系统会根据 Forge、NeoForge、Fabric 或 Paper
-            自动切换市场类型和安装目录。
-          </span>
+          <strong>选择要安装附加的服务器</strong>
+          <span>Forge、NeoForge 和 Fabric 安装模组，Paper 安装插件。</span>
         </div>
       ) : loadingInfo ? (
         <div className="workspace-placeholder" role="status">
-          <strong>正在读取服务器环境…</strong>
-          <span>正在确认加载器、游戏版本和安装目录。</span>
+          <strong>正在读取服务器版本…</strong>
+          <span>用于筛选兼容项目和版本</span>
         </div>
       ) : marketError && !info ? (
         <div className="workspace-placeholder">
@@ -333,7 +330,7 @@ export default function Market() {
           </main>
           <aside className="market-inspector">
             {!selected ? (
-              <div className="inspector-empty">选择一个项目查看兼容版本</div>
+              <div className="inspector-empty">选择项目后确认版本并安装</div>
             ) : (
               <>
                 <div className="inspector-project">

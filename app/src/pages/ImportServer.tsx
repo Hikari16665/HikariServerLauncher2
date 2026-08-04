@@ -189,7 +189,7 @@ export default function ImportServer() {
       <header className="utility-header">
         <div>
           <h1>导入服务器</h1>
-          <p>从 Modrinth .mrpack 创建专用服务器</p>
+          <p>从 .mrpack 安装服务器及其模组</p>
         </div>
         <div className="import-steps">
           <span className={stage >= 0 ? "active" : ""}>1 文件</span>
@@ -230,8 +230,8 @@ export default function ImportServer() {
           <strong>{uploading ? `正在读取模组包… ${uploadProgress}%` : "拖入 .mrpack 文件"}</strong>
           <p>
             {uploading
-              ? "正在解析文件和模组元数据。"
-              : "或者点击选择文件。解析过程不会修改现有服务器。"}
+              ? "正在读取文件清单和模组信息"
+              : "拖入文件，或点击此处选择"}
           </p>
         </div>
       )}
@@ -240,7 +240,7 @@ export default function ImportServer() {
           <div>
             <span className="loading-spinner" />
             <strong>正在读取模组包</strong>
-            <p>正在分块上传并分析模组信息（{uploadProgress}%），可以取消或切换到其他页面。</p>
+            <p>正在读取文件清单和模组信息（{uploadProgress}%）</p>
             <button className="btn-ghost" onClick={cancelInspect}>
               取消读取
             </button>
@@ -314,8 +314,8 @@ export default function ImportServer() {
             </div>
           </main>
           <aside className="surface mrpack-next">
-            <strong>下一步将选择服务端内容</strong>
-            <p>客户端专用模组和云端不兼容规则命中的项目会默认取消并锁定。</p>
+            <strong>选择要安装的内容</strong>
+            <p>不支持服务端的模组不会安装，并会显示具体原因。</p>
             <button
               className="btn-primary"
               disabled={!name.trim()}

@@ -75,7 +75,7 @@ modeButtons.forEach(button => button.addEventListener("click", () => {
   if (button.disabled) return;
   selectedMode = button.dataset.mode;
   modeButtons.forEach(item => item.classList.toggle("selected", item === button));
-  showMessage(button.querySelector("strong").textContent + "已选择");
+  showMessage(`将启动：${button.querySelector("strong").textContent}`);
 }));
 
 autostartButton.addEventListener("click", async () => {
@@ -94,7 +94,7 @@ autostartButton.addEventListener("click", async () => {
 launchButton.addEventListener("click", async () => {
   launchButton.disabled = true;
   launchButton.textContent = selectedMode === "full" ? "等待后端…" : "正在启动…";
-  showMessage("正在执行启动任务");
+  showMessage(selectedMode === "full" ? "正在启动后端，随后打开前端" : selectedMode === "frontend" ? "正在打开前端" : "正在启动后端");
   try {
     const result = await invoke("launch_mode", { mode: selectedMode });
     showMessage(result.message, "success");

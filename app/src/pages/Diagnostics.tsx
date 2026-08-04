@@ -41,7 +41,7 @@ export default function Diagnostics() {
 
   return <section className="page-shell diagnostics-page">
     <header className="utility-header">
-      <div><h1>服务器检测</h1><p>检查启动条件、安全配置、性能参数以及附加兼容性</p></div>
+      <div><h1>服务器检测</h1><p>检测配置、性能、模组和插件问题</p></div>
       <div className="header-actions">
         <select value={serverId} onChange={(event) => { setServerId(event.target.value); setReport(null); }}>
           <option value="">选择服务器…</option>
@@ -51,9 +51,9 @@ export default function Diagnostics() {
       </div>
     </header>
 
-    {!serverId ? <div className="workspace-placeholder"><strong>选择一个服务器开始检测</strong><span>检测过程仅读取本地文件，不会修改服务器配置。</span></div>
-      : running ? <div className="diagnostic-running"><span className="diagnostic-spinner"/><strong>正在扫描 {selected?.name}</strong><p>读取配置文件并分析模组、插件元数据与依赖关系…</p></div>
-      : !report ? <div className="diagnostic-ready"><div className="diagnostic-ready-icon">✓</div><div><strong>{selected?.name}</strong><span>已准备好。点击“开始检测”生成新的诊断报告。</span></div></div>
+    {!serverId ? <div className="workspace-placeholder"><strong>选择要检测的服务器</strong><span>检测只读取文件，不修改服务器。</span></div>
+      : running ? <div className="diagnostic-running"><span className="diagnostic-spinner"/><strong>正在检测 {selected?.name}</strong><p>正在检查配置、附加类型、兼容版本和依赖</p></div>
+      : !report ? <div className="diagnostic-ready"><div className="diagnostic-ready-icon">✓</div><div><strong>{selected?.name}</strong><span>点击“开始检测”检查此服务器。</span></div></div>
       : <div className="diagnostic-workspace">
         <aside className="diagnostic-summary">
           <div className={`diagnostic-verdict ${report.healthy ? "healthy" : "attention"}`}><span>{report.healthy ? "✓" : "!"}</span><strong>{report.healthy ? "状态良好" : "需要处理"}</strong><small>扫描 {report.addon_count} 个附加 · {report.duration_ms} ms</small></div>
@@ -62,7 +62,7 @@ export default function Diagnostics() {
         </aside>
         <main className="diagnostic-results">
           <div className="diagnostic-results-head"><strong>检测结果</strong><span>{report.issues.length ? `共 ${report.issues.length} 项` : "没有发现问题"}</span></div>
-          {!report.issues.length ? <div className="diagnostic-empty"><strong>所有检查均已通过</strong><span>没有发现启动、安全、兼容性或配置方面的问题。</span></div>
+          {!report.issues.length ? <div className="diagnostic-empty"><strong>未发现问题</strong><span>配置、兼容性和启动条件检查通过。</span></div>
             : report.issues.map((issue, index) => <article className={`diagnostic-issue level-${issue.level}`} key={`${issue.code}-${issue.file || index}`}>
               <span className="diagnostic-mark">{levelMeta[issue.level].mark}</span>
               <div><div className="diagnostic-issue-title"><span>{levelMeta[issue.level].label}</span><strong>{issue.title}</strong>{issue.file ? <code>{issue.file}</code> : null}</div><p>{issue.message}</p></div>
