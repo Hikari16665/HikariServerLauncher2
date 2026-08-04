@@ -9,7 +9,7 @@ use std::time::Duration;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WebviewUrl, WebviewWindowBuilder,
+    LogicalSize, Manager, Size, WebviewUrl, WebviewWindowBuilder,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -713,7 +713,7 @@ fn toggle_workspace_menu(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn open_workspace_window(
+async fn open_workspace_window(
     app: tauri::AppHandle,
     label: String,
     route: String,
@@ -748,6 +748,20 @@ fn open_workspace_window(
     Ok(())
 }
 
+#[tauri::command]
+async fn set_orb_task_mode(app: tauri::AppHandle, active: bool) -> Result<(), String> {
+    let orb = app
+        .get_webview_window("workspace-orb")
+        .ok_or_else(|| "悬浮窗口不存在".to_string())?;
+    let size = if active {
+        LogicalSize::new(288.0, 126.0)
+    } else {
+        LogicalSize::new(100.0, 76.0)
+    };
+    orb.set_size(Size::Logical(size))
+        .map_err(|error| error.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -768,6 +782,7 @@ pub fn run() {
             show_home,
             toggle_workspace_menu,
             open_workspace_window,
+            set_orb_task_mode,
             set_workspace_session,
             get_workspace_session
         ])

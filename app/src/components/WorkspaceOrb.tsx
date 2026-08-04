@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTaskStore } from "../store/tasks";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -18,6 +18,7 @@ export default function WorkspaceOrb() {
   useWebSocket("/api/tasks/stream", onMessage, enabled);
   const active = useMemo(() => tasks.filter((task) => task.status === "running" || task.status === "pending"), [tasks]);
   const task = active[0];
+  useEffect(() => { invoke("set_orb_task_mode", { active: Boolean(task) }).catch((error) => setCommandError(String(error))); }, [task]);
   const progress = Math.max(0, Math.min(100, task?.progress || 0));
   const perimeter = 216;
   return <main className="workspace-orb-window">
