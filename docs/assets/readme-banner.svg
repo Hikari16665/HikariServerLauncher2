@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">HSL2 workspace overview</title>
+  <desc id="desc">An abstract diagram showing the HSL2 workspace connecting servers, live operations, and the add-on ecosystem.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#171a23"/>
+      <stop offset="1" stop-color="#252238"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d44a7a"/>
+      <stop offset="1" stop-color="#8d62df"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000" flood-opacity=".28"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="360" rx="26" fill="url(#background)"/>
+  <circle cx="1070" cy="-10" r="230" fill="#d44a7a" opacity=".09"/>
+  <circle cx="110" cy="390" r="250" fill="#4a8ad4" opacity=".08"/>
+  <g fill="none" stroke="#3a3d4d" stroke-width="2">
+    <path d="M344 180H426"/><path d="M774 180H856"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="64" y="84" width="280" height="192" rx="18" fill="#1f2432" stroke="#3a4053"/>
+    <rect x="426" y="48" width="348" height="264" rx="22" fill="#171a23" stroke="#d44a7a" stroke-width="2"/>
+    <rect x="856" y="84" width="280" height="192" rx="18" fill="#1f2432" stroke="#3a4053"/>
+  </g>
+  <g font-family="Segoe UI,Microsoft YaHei,sans-serif">
+    <text x="92" y="126" fill="#9498a5" font-size="13" letter-spacing="2">SERVERS</text>
+    <text x="92" y="165" fill="#f3f4f7" font-size="25" font-weight="700">Multi-instance</text>
+    <text x="92" y="200" fill="#9498a5" font-size="15">Vanilla / Paper / Forge</text>
+    <text x="92" y="226" fill="#9498a5" font-size="15">NeoForge / Fabric</text>
+    <rect x="92" y="246" width="118" height="5" rx="2.5" fill="#4ecca3"/>
+
+    <rect x="466" y="82" width="58" height="58" rx="14" fill="url(#accent)"/>
+    <text x="495" y="120" text-anchor="middle" fill="#fff" font-size="22" font-weight="800">HSL</text>
+    <text x="466" y="176" fill="#f7f7fa" font-size="31" font-weight="750">One workspace</text>
+    <text x="466" y="208" fill="#b8bac5" font-size="17">Install, run, maintain, diagnose</text>
+    <g transform="translate(466 238)">
+      <rect width="84" height="31" rx="15.5" fill="#2a2d3a"/><text x="42" y="21" text-anchor="middle" fill="#d8d9e0" font-size="12">TASKS</text>
+      <rect x="94" width="84" height="31" rx="15.5" fill="#2a2d3a"/><text x="136" y="21" text-anchor="middle" fill="#d8d9e0" font-size="12">CONSOLE</text>
+      <rect x="188" width="104" height="31" rx="15.5" fill="#2a2d3a"/><text x="240" y="21" text-anchor="middle" fill="#d8d9e0" font-size="12">FILES</text>
+    </g>
+
+    <text x="884" y="126" fill="#9498a5" font-size="13" letter-spacing="2">ECOSYSTEM</text>
+    <text x="884" y="165" fill="#f3f4f7" font-size="25" font-weight="700">Add-on ecosystem</text>
+    <text x="884" y="200" fill="#9498a5" font-size="15">Modrinth and dependencies</text>
+    <text x="884" y="226" fill="#9498a5" font-size="15">mrpack and compatibility</text>
+    <rect x="884" y="246" width="146" height="5" rx="2.5" fill="url(#accent)"/>
+  </g>
+  <g fill="#d44a7a"><circle cx="385" cy="180" r="5"/><circle cx="815" cy="180" r="5"/></g>
+</svg>
