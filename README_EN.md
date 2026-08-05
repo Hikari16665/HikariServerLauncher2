@@ -16,7 +16,7 @@
 
 </div>
 
-![HSL2 workspace overview](docs/assets/readme-banner.svg)
+![HSL2 decorative divider](docs/assets/readme-banner.svg)
 
 HSL2 is a desktop management suite for Minecraft server owners. It prepares Java and server files, manages multiple instances, and brings the terminal, files, configuration, backups, marketplace, and diagnostics into one workspace. The desktop client and backend can run together or on separate machines.
 
@@ -40,10 +40,6 @@ HSL2 is a desktop management suite for Minecraft server owners. It prepares Java
 - **Mainland China network support** — Select mirror sources and inspect carrier-network conditions.
 
 ## How it works
-
-<div align="center">
-  <img src="app/src/assets/hero.png" width="260" alt="HSL2 layered workspace artwork" />
-</div>
 
 HSL2 combines a desktop application, a graphical launcher, and a backend service. The launcher can start the complete environment, the frontend only, or the backend only. On Windows, the backend can also start automatically after sign-in. A floating workspace control opens management tools only when needed instead of keeping one large window on screen.
 
