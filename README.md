@@ -6,6 +6,9 @@
 
 **把 Minecraft 服务器的安装、运行、维护与扩展管理放进一个现代桌面工作区。**
 
+> [!WARNING]
+> 本项目因法律原因暂时停止开发和发布。This project is temporarily stopped for legal reasons. Development, support, and new releases are paused until further notice.
+
 [English](README_EN.md) · [安装指南](docs/INSTALL.zh-CN.md) · [使用指南](USAGE.md) · [参与贡献](CONTRIBUTING.md)
 
 [![Release](https://img.shields.io/github/v/release/Hikari16665/HikariServerLauncher2?style=flat-square&color=d44a7a)](https://github.com/Hikari16665/HikariServerLauncher2/releases)
@@ -18,7 +21,7 @@
 
 ![HSL2 分隔装饰](docs/assets/readme-banner.svg)
 
-HSL2 是一套面向 Minecraft 服主的桌面管理工具。它负责准备 Java 与服务端文件、管理多个实例，并把终端、文件、配置、备份、市场和诊断集中在同一套工作区中。前端与后端可以部署在同一台电脑，也可以分离运行。
+HSL2 是一套面向 Minecraft 服主的桌面管理工具。它负责准备 Java 与服务端文件、管理多个实例，并把终端、文件、配置、备份、市场和诊断集中在同一应用工作区中。
 
 ## 为什么选择 HSL2
 
@@ -41,7 +44,7 @@ HSL2 是一套面向 Minecraft 服主的桌面管理工具。它负责准备 Jav
 
 ## 工作方式
 
-HSL2 由桌面应用、图形化启动器和后端服务组成。启动器可以一键运行完整环境，也可以只启动前端或后端；后端还可以设置为 Windows 登录后自动启动。桌面应用使用悬浮工作区入口，让服务器管理页面按需打开，而不必长期占用一个大型主窗口。
+HSL2 由桌面应用、图形化启动器和后端服务组成。启动器可以一键运行完整环境，也可以只启动前端或后端；后端还可以设置为 Windows 登录后自动启动。
 
 ## 开始使用
 
@@ -53,7 +56,7 @@ HSL2 由桌面应用、图形化启动器和后端服务组成。启动器可以
 
 | 桌面端 | 后端 | 实时与数据 |
 | --- | --- | --- |
-| Tauri 2、Rust、React、TypeScript、Vite | Python、Flask、PyInstaller | WebSocket、Zustand、Modrinth API |
+| Tauri 2、Rust、React、TypeScript、Vite | Python���Flask、PyInstaller | WebSocket、Zustand、Modrinth API |
 
 ## 文档
 
@@ -62,7 +65,7 @@ HSL2 由桌面应用、图形化启动器和后端服务组成。启动器可以
 - [使用指南](USAGE.md)
 - [API 文档](API_DOC.md)
 - [贡献指南](CONTRIBUTING.md)
-- [GPL-3.0 许可证](LICENSE)
+- [WTFPL 许可证](LICENSE)
 
 ## 参与项目
 
